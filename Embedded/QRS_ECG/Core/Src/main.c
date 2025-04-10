@@ -1,24 +1,19 @@
-/* USER CODE BEGIN Header */
 /**
-  ******************************************************************************
-  * @file           : main.c
-  * @brief          : Main program body
-  ******************************************************************************
-  * @attention
-  *
-  * Copyright (c) 2025 STMicroelectronics.
-  * All rights reserved.
-  *
-  * This software is licensed under terms that can be found in the LICENSE file
-  * in the root directory of this software component.
-  * If no LICENSE file comes with this software, it is provided AS-IS.
-  *
-  ******************************************************************************
-  */
-/* USER CODE END Header */
-/* Includes ------------------------------------------------------------------*/
+ * @file       main.c
+ * @copyright  Copyright (C) 2025 HCMUS. All rights reserved.
+ * @license    This project is released under the VB's License.
+ * @version    1.0.0
+ * @date       2025-03-25
+ * @author     Binh Nguyen
+ *
+ * @brief      main
+ *
+ */
+
+/* Includes ----------------------------------------------------------- */
 #include "main.h"
 #include "mylib.h"
+#include "filter.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
@@ -26,6 +21,7 @@
 
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
+extern MovingAverageFilter adc_filter;
 /* USER CODE END PTD */
 
 /* Private define ------------------------------------------------------------*/
@@ -101,6 +97,7 @@ int main(void)
   MX_TIM2_Init();
   /* USER CODE BEGIN 2 */
 //  HAL_Delay(200);
+  MovingAverageFilter_Init(&adc_filter);
   HAL_ADC_Start_DMA(&hadc1, &ADC_value, 1);
   HAL_ADC_Start_IT(&hadc1); // dma knows when the conversion done
   HAL_TIM_Base_Start_IT(&htim2);
