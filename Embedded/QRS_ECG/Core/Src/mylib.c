@@ -16,9 +16,29 @@
 /* Includes ----------------------------------------------------------- */
 #include "mylib.h"
 
+/* Private defines ---------------------------------------------------- */
+/* None */
+
+/* Private enumerate/structure ---------------------------------------- */
+/* None */
+
+/* Private macros ----------------------------------------------------- */
+/* None */
+
 /* Public variables --------------------------------------------------- */
-uint8_t stream_index = 0;       /**< Index of the current stream in ADC_Values array */
-uint8_t array_index = 0;        /**< Index of the current sample in the stream */
-uint8_t send_flag = 0;          /**< Flag to indicate when to send data over UART */
-uint32_t ADC_value;             /**< Raw ADC value read from the sensor */
-uint16_t ADC_Values[4][64];     /**< Array to store 4 streams of 64 ADC samples each */
+uint8_t send_flag = 0;     /**< Flag to indicate when to send data over UART */
+uint32_t ADC_value;        /**< Raw ADC value read from the sensor */
+
+/* Private variables -------------------------------------------------- */
+/* None */
+
+/* Private function prototypes ---------------------------------------- */
+/* None */
+
+/* Function definitions ----------------------------------------------- */
+/* None */
+
+/* Private definitions ----------------------------------------------- */
+/* None */
+
+/* End of file -------------------------------------------------------- */
