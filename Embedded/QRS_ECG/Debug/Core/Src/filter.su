@@ -1,3 +1,2 @@
-../Core/Src/filter.c:11:6:MedianFilter_Init	24	static
-../Core/Src/filter.c:20:13:bubble_sort	24	static
-../Core/Src/filter.c:33:10:MedianFilter_Apply	32	static
+../Core/Src/filter.c:38:6:MovingAverageFilter_Init	24	static
+../Core/Src/filter.c:47:10:MovingAverageFilter_Apply	24	static
