@@ -11,9 +11,13 @@
  */
 
 /* Includes ----------------------------------------------------------- */
+#include <stdio.h>
+#include <string.h>
 #include "main.h"
 #include "mylib.h"
 #include "filter.h"
+#include "cbuffer.h"
+#include "qrs_detector.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
@@ -22,6 +26,11 @@
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
 extern MovingAverageFilter adc_filter;
+extern cbuffer_t adc_buffer;
+extern uint8_t adc_buffer_data[512];
+extern QRSDetector qrs_detector;
+uint8_t qrs_flags[64];
+uint8_t qrs_flag_index = 0;
 /* USER CODE END PTD */
 
 /* Private define ------------------------------------------------------------*/
@@ -43,7 +52,7 @@ TIM_HandleTypeDef htim2;
 UART_HandleTypeDef huart2;
 
 /* USER CODE BEGIN PV */
-char sendBuffer[350]; // 64 * 4 = 256 -> 350 is quite good
+char sendBuffer[600]; // 64 * 4 = 256 -> 350 is quite good
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -96,12 +105,15 @@ int main(void)
   MX_USART2_UART_Init();
   MX_TIM2_Init();
   /* USER CODE BEGIN 2 */
-//  HAL_Delay(200);
   MovingAverageFilter_Init(&adc_filter);
+  cb_init(&adc_buffer, adc_buffer_data, sizeof(adc_buffer_data));
+  QRSDetector_Init(&qrs_detector);
+  memset(qrs_flags, 0, sizeof(qrs_flags));
+  HAL_TIM_Base_Start_IT(&htim2);
   HAL_ADC_Start_DMA(&hadc1, &ADC_value, 1);
   HAL_ADC_Start_IT(&hadc1); // dma knows when the conversion done
-  HAL_TIM_Base_Start_IT(&htim2);
-  memset(ADC_Values, 0, sizeof(ADC_Values));
+
+//  memset(ADC_Values, 0, sizeof(ADC_Values));
 
 
   /* USER CODE END 2 */
@@ -116,41 +128,35 @@ int main(void)
 	  if(send_flag == 1)
 	  {
 		  send_flag = 0;
-
 		  memset(sendBuffer, 0, sizeof(sendBuffer));
-		  /*
-		   * - Trường hợp stream_index == 0:
-				Lấy dữ liệu từ hàng cuối cùng (ADC_Values[3]) của mảng.
-				Điều này xảy ra khi cả 4 hàng đã được ghi đầy và stream_index quay lại 0 (do logic trong TIM2_IRQHandler).
-
-			 - Trường hợp stream_index != 0:
-				Lấy dữ liệu từ hàng trước đó (stream_index - 1).
-				Ví dụ, nếu stream_index = 1, dữ liệu từ ADC_Values[0] được gửi.
-
-			 - Vòng lặp for:
-				Chạy qua 64 phần tử của hàng được chọn.
-				itoa(ADC_Values[...][i], &sendBuffer[strlen(sendBuffer)], 10): Chuyển giá trị số nguyên ADC_Values[...][i]
-				(kiểu uint16_t) thành chuỗi và nối vào cuối sendBuffer.
-				sendBuffer[strlen(sendBuffer)] = ',': Thêm dấu phẩy (,) sau mỗi giá trị để phân tách.
-		   */
-			if(stream_index == 0)
+		  uint8_t temp_buffer[128]; // 64 sample x 2 byte
+		  uint32_t bytes_read = cb_read(&adc_buffer, temp_buffer, 128);
+			if(bytes_read == 128)
 			{
-				for(int i=0; i<64; i++)
-				{
-					itoa(ADC_Values[3][i], &sendBuffer[strlen(sendBuffer)], 10); // i-to-a : int to array
-					sendBuffer[strlen(sendBuffer)] = ',';
-				}
+				for (int i = 0; i < 64; i++)
+				      {
+				        uint16_t value = (temp_buffer[i * 2] << 8) | temp_buffer[i * 2 + 1];
+				        sprintf(&sendBuffer[strlen(sendBuffer)], "%u,", value);
+				      }
+				      // Send QRS Flag (64 bit: 0 / 1)
+				      for (int i = 0; i < 64; i++)
+				      {
+				        sprintf(&sendBuffer[strlen(sendBuffer)], "%u", qrs_flags[i]);
+				        if (i < 63) {
+				          sprintf(&sendBuffer[strlen(sendBuffer)], ",");
+				        }
+				      }
+				      sprintf(&sendBuffer[strlen(sendBuffer)], "\n");
+				      HAL_UART_Transmit(&huart2, (uint8_t*)sendBuffer, strlen(sendBuffer), 200);
+
+				      memset(qrs_flags, 0, sizeof(qrs_flags));
+				      qrs_flag_index = 0;
 			}
 			else
 			{
-				for(int i=0; i<64; i++)
-				{
-					itoa(ADC_Values[stream_index-1][i], &sendBuffer[strlen(sendBuffer)], 10);
-					sendBuffer[strlen(sendBuffer)] = ',';
-				}
+				char error_msg[] = "Error reading from buffer\n";
+				HAL_UART_Transmit(&huart2, (uint8_t*)error_msg, strlen(error_msg), 200);
 			}
-			sendBuffer[strlen(sendBuffer)-1] = '\n';
-			HAL_UART_Transmit(&huart2, (uint8_t*)sendBuffer, strlen(sendBuffer), 200);
 	  }
   }
   /* USER CODE END 3 */

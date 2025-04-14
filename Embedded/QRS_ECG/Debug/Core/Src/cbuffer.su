@@ -1,0 +1,8 @@
+../Core/Src/cbuffer.c:51:10:cb_init	24	static
+../Core/Src/cbuffer.c:66:10:cb_clear	16	static
+../Core/Src/cbuffer.c:78:10:cb_read	40	static
+../Core/Src/cbuffer.c:99:10:cb_write	40	static
+../Core/Src/cbuffer.c:126:10:cb_data_count	24	static
+../Core/Src/cbuffer.c:140:10:cb_space_count	24	static
+../Core/Src/cbuffer.c:157:17:cb_write_byte	24	static
+../Core/Src/cbuffer.c:171:17:cb_read_byte	24	static

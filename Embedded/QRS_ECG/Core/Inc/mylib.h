@@ -22,14 +22,23 @@
 #include <string.h>
 #include <stdlib.h>
 
+/* Public defines ----------------------------------------------------- */
+/* None */
+
+/* Public enumerate/structure ----------------------------------------- */
+/* None */
+
+/* Public macros ------------------------------------------------------ */
+/* None */
+
 /* Public variables --------------------------------------------------- */
-extern uint8_t stream_index;        /**< Index of the current stream in ADC_Values array */
-extern uint8_t array_index;         /**< Index of the current sample in the stream */
-extern uint8_t send_flag;           /**< Flag to indicate when to send data over UART */
-extern uint32_t ADC_value;          /**< Raw ADC value read from the sensor */
-extern UART_HandleTypeDef huart2;   /**< UART handle for communication */
-extern uint16_t ADC_Values[4][64];  /**< Array to store 4 streams of 64 ADC samples each */
-extern ADC_HandleTypeDef hadc1;     /**< ADC handle for reading sensor data */
+extern uint8_t send_flag;     /**< Flag to indicate when to send data over UART */
+extern uint32_t ADC_value;    /**< Raw ADC value read from the sensor */
+extern UART_HandleTypeDef huart2; /**< UART handle for communication */
+extern ADC_HandleTypeDef hadc1;   /**< ADC handle for reading sensor data */
+
+/* Public function prototypes ----------------------------------------- */
+/* None */
 
 #endif /* INC_MYLIB_H_ */
 
