@@ -17,6 +17,7 @@
 #include "mylib.h"
 #include "filter.h"
 #include "cbuffer.h"
+#include "qrs_detector.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
@@ -27,6 +28,9 @@
 extern MovingAverageFilter adc_filter;
 extern cbuffer_t adc_buffer;
 extern uint8_t adc_buffer_data[512];
+extern QRSDetector qrs_detector;
+uint8_t qrs_flags[64];
+uint8_t qrs_flag_index = 0;
 /* USER CODE END PTD */
 
 /* Private define ------------------------------------------------------------*/
@@ -48,7 +52,7 @@ TIM_HandleTypeDef htim2;
 UART_HandleTypeDef huart2;
 
 /* USER CODE BEGIN PV */
-char sendBuffer[350]; // 64 * 4 = 256 -> 350 is quite good
+char sendBuffer[600]; // 64 * 4 = 256 -> 350 is quite good
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -103,6 +107,8 @@ int main(void)
   /* USER CODE BEGIN 2 */
   MovingAverageFilter_Init(&adc_filter);
   cb_init(&adc_buffer, adc_buffer_data, sizeof(adc_buffer_data));
+  QRSDetector_Init(&qrs_detector);
+  memset(qrs_flags, 0, sizeof(qrs_flags));
   HAL_TIM_Base_Start_IT(&htim2);
   HAL_ADC_Start_DMA(&hadc1, &ADC_value, 1);
   HAL_ADC_Start_IT(&hadc1); // dma knows when the conversion done
@@ -123,17 +129,28 @@ int main(void)
 	  {
 		  send_flag = 0;
 		  memset(sendBuffer, 0, sizeof(sendBuffer));
-		  uint8_t temp_buffer[128]; // 64 mẫu x 2 byte
+		  uint8_t temp_buffer[128]; // 64 sample x 2 byte
 		  uint32_t bytes_read = cb_read(&adc_buffer, temp_buffer, 128);
 			if(bytes_read == 128)
 			{
-				for(int i=0; i<64; i++)
-				{
-					uint16_t value = (temp_buffer[i * 2] << 8) | temp_buffer[i * 2 + 1];
-					sprintf(&sendBuffer[strlen(sendBuffer)], "%u,", value);
-				}
-				sendBuffer[strlen(sendBuffer) - 1] = '\n';
-				HAL_UART_Transmit(&huart2, (uint8_t*)sendBuffer, strlen(sendBuffer), 200);
+				for (int i = 0; i < 64; i++)
+				      {
+				        uint16_t value = (temp_buffer[i * 2] << 8) | temp_buffer[i * 2 + 1];
+				        sprintf(&sendBuffer[strlen(sendBuffer)], "%u,", value);
+				      }
+				      // Send QRS Flag (64 bit: 0 / 1)
+				      for (int i = 0; i < 64; i++)
+				      {
+				        sprintf(&sendBuffer[strlen(sendBuffer)], "%u", qrs_flags[i]);
+				        if (i < 63) {
+				          sprintf(&sendBuffer[strlen(sendBuffer)], ",");
+				        }
+				      }
+				      sprintf(&sendBuffer[strlen(sendBuffer)], "\n");
+				      HAL_UART_Transmit(&huart2, (uint8_t*)sendBuffer, strlen(sendBuffer), 200);
+
+				      memset(qrs_flags, 0, sizeof(qrs_flags));
+				      qrs_flag_index = 0;
 			}
 			else
 			{
