@@ -23,11 +23,15 @@
 #include "mylib.h"
 #include "filter.h"
 #include "cbuffer.h"
+#include "qrs_detector.h"
 
 /* Private variables ---------------------------------------------------------*/
 MovingAverageFilter adc_filter;
 cbuffer_t adc_buffer;
 uint8_t adc_buffer_data[512];
+QRSDetector qrs_detector;
+extern uint8_t qrs_flags[64];
+extern uint8_t qrs_flag_index;
 
 /* External variables --------------------------------------------------------*/
 extern DMA_HandleTypeDef hdma_adc1;
@@ -178,19 +182,29 @@ void SysTick_Handler(void)
   */
 void TIM2_IRQHandler(void)
 {
-	uint16_t filtered_value = MovingAverageFilter_Apply(&adc_filter, (uint16_t)ADC_value);
+  /* USER CODE BEGIN TIM2_IRQn 0 */
+  uint16_t filtered_value = MovingAverageFilter_Apply(&adc_filter, (uint16_t)ADC_value);
 
-	uint8_t high_byte = (filtered_value >> 8) & 0xFF;
-	uint8_t low_byte = filtered_value & 0xFF;
-	cb_write(&adc_buffer, &high_byte, 1);
-	cb_write(&adc_buffer, &low_byte, 1);
+  uint8_t is_qrs = QRSDetector_Process(&qrs_detector, filtered_value); 
 
-	if (cb_data_count(&adc_buffer) >= 128)
-	{
-		send_flag = 1;
-	}
-	  /* USER CODE END TIM2_IRQn 0 */
-	HAL_TIM_IRQHandler(&htim2);
+  if (qrs_flag_index < 64) {
+    qrs_flags[qrs_flag_index] = is_qrs;
+    qrs_flag_index++;
+  }
+
+  uint8_t high_byte = (filtered_value >> 8) & 0xFF; 
+  uint8_t low_byte = filtered_value & 0xFF;         
+  cb_write(&adc_buffer, &high_byte, 1);
+  cb_write(&adc_buffer, &low_byte, 1);
+
+  if (cb_data_count(&adc_buffer) >= 128) 
+  {
+    send_flag = 1; 
+  }
+  /* USER CODE END TIM2_IRQn 0 */
+  HAL_TIM_IRQHandler(&htim2);
+  /* USER CODE BEGIN TIM2_IRQn 1 */
+  /* USER CODE END TIM2_IRQn 1 */
 }
 
 /**
