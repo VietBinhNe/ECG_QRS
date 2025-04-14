@@ -1,0 +1,9 @@
+../Core/Src/qrs_detector.c:32:6:QRSDetector_Init	5
+../Core/Src/qrs_detector.c:56:9:QRSDetector_Process	13
+../Core/Src/qrs_detector.c:134:16:bandpass_filter	2
+../Core/Src/qrs_detector.c:149:16:derivative	3
+../Core/Src/qrs_detector.c:159:16:squaring	1
+../Core/Src/qrs_detector.c:164:16:moving_window_integration	2
+../Core/Src/qrs_detector.c:174:13:update_thresholds	2
+../Core/Src/qrs_detector.c:186:13:update_rr_intervals	7
+../Core/Src/qrs_detector.c:208:16:calculate_slope	1
