@@ -3,87 +3,47 @@
 </div> -->
 # Detect QRS peak of ECG wave on STM32 
 
-#### 📖 <font color=red><b>Note that,</b></font> This **README** file is a step-by-step guide to setup. While there are some code snippets here, it is only a shorthand to illustrate what is in the file, so please do not copy the code in this file and put into your file to run, it can cause unwanted errors. </br>
-<font color=yellow>Please strictly follow the instructions.</font>
 
-### ⚙️ <font color=Gree><b>0.</b></font> <font color=Gree> Overview </font> </br>
-First you need to install and add some necessary libraries for this project.
+### 📑 <font color=Gree><b>0.</b></font> <font color=Gree> Overview </font> </br>
 
-### 🧮 <font color=Gree><b> 1. </b></font> <font color=Gree> STM32 Configuration </font> </br>
+This project implements a real-time QRS detection system for ECG signals using the STM32F411 microcontroller. The system is based on the Pan-Tompkins algorithm, a well-known method for detecting QRS complexes (specifically the R peaks) in ECG signals. The project captures ECG data via ADC, processes it on the STM32F411, and sends the processed data (ADC values and QRS flags) to a Python script for visualization.
 
-#### <font color=Purple><b><i> a) Clock Configuration </i></b></font> 
+The system operates at a sampling rate of 64 Hz, collecting 6 seconds of data (384 samples) and displaying a static plot of the ECG signal from the 2nd to the 6th second (256 samples). The R peaks are marked with red dots on the plot.
 
-RCC : 
-- HSE : Crystal / Ceramic Resonator
-- LSE : Disable
+Features:
+- Real-time QRS detection using the Pan-Tompkins algorithm.
 
-<center>
-  <img src="assets/clock-config.png" alt="Circular Buffer Animation">
-</center>
+- ECG signal acquisition at 64 Hz using the STM32F411's ADC.
 
-Make sure HCLK is set at 100 MHz.
+- Signal preprocessing with bandpass filtering, derivative, squaring, and moving-window integration.
 
-#### <font color=Purple><b><i> b) ADC Configuration </i></b></font>
+- Adaptive thresholding to detect R peaks.
 
-Mode : IN0 equivalent to PA0 (ADC1_IN0)
+- Data transmission via UART to a Python script for visualization.
 
-Configuration : 
+- Static visualization of the ECG signal and R peaks from the 2nd to the 6th second.
 
-- Parameter Settings : 
+### ⚙️ <font color=Gree><b> 1. </b></font> <font color=Gree> Hardware Requirements </font> </br>
 
-  - Resolution: 12 bits 
+- STM32F411 Microcontroller
 
-  - Scan Conversion Mode: Disabled.
+- ECG Sensor: AD8232 
 
-  - Continuous Conversion Mode: Enabled.
+- USB-to-Serial Adapter: For UART communication between STM32 and PC.
 
-  - End of Conversion Selection: EOC flag at the end of single conversion.
+- PC with Python Installed: For running the visualization script.
 
-  - Data Alignment: Right alignment.
+### 💽 <font color=Gree><b> 2. </b></font> <font color=Gree> Software Requirements </font> </br>
 
+- STM32CubeIDE: For compiling and uploading the firmware to the STM32F411.
 
-#### <font color=Purple><b><i> c) UART Configuration </i></b></font>
+- Python 3.x: For running the visualization script.
 
-Mode : Asynchonus
-Basic Parameters : 
-- Baud rate : 115200
-- Word length : 8 bits (including parity)
+- Required Python Libraries:
+  - pyserial: For UART communication.
+  - numpy: For numerical operations.
+  - matplotlib: For plotting the ECG signal.
 
-#### <font color=Purple><b><i> d) Timer Configuration </i></b></font>
-- Using Timer 2 (TIM2) corresponding to APB1 Clock (see at page 39 on STM32F411xC/E Referance Manual)
+### 📖 <font color=Gree><b> 3. </b></font> <font color=Gree> References </font> </br>
 
-
-Given the following timer configuration:
-
-- **APB1 Timer Clock**: 100 MHz
-- **Prescaler (PSC)**: 1,249
-- **Counter Period (ARR)**: 1,250
-
-a. Calculating Timer Frequency ($f_{timer}$)
-
-The timer frequency is determined using the formula:
-
-$$ f_{timer} = \frac{f_{clock}}{(PSC + 1)} $$
-
-Substituting the values:
-
-$$ f_{timer} = \frac{100\text{ MHz}}{1249} \approx 69.63\text{ kHz} $$
-
-b. Calculating Trigger Frequency ($f_{trigger}$)
-
-The trigger frequency is calculated as:
-
-$$ f_{trigger} = \frac{f_{timer}}{(ARR + 1)} $$
-
-Substituting the values:
-
-$$ f_{trigger} = \frac{69.63\text{ kHz}}{1250} \approx 64\text{ Hz} $$
-
-c. ADC Sampling Rate
-
-Since the timer trigger frequency determines the ADC sampling rate:
-
-$$ \text{Sampling rate} = f_{trigger} = 64\text{ Hz} $$
-
-The timer will generate a trigger signal 64 times per second. In other words, the ADC will perform the process of converting the analog signal from the sensor to a digital signal at a frequency of 64 samples per second (64 Hz).
-
+- Pan, J., & Tompkins, W. J. (1985). "A Real-Time QRS Detection Algorithm." IEEE Transactions on Biomedical Engineering, Vol. BME-32, No. 3, pp. 230-236.
