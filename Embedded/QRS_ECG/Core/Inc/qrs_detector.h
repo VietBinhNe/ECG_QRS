@@ -17,16 +17,20 @@
 
 /* Public defines ----------------------------------------------------- */
 #define QRS_SAMPLING_RATE      64    /*!< Sampling rate of ADC (64 Hz) */
-#define QRS_WINDOW_SIZE        14    /*!< Window size for integration (218 ms at 64 Hz) */
-#define QRS_REFRACTORY_PERIOD  10    /*!< Refractory period (156 ms at 64 Hz) */
+#define QRS_WINDOW_SIZE        10    /*!< Window size for integration (156 ms at 64 Hz) */
+#define QRS_REFRACTORY_PERIOD  12    /*!< Refractory period (187.5 ms at 64 Hz) */
 #define QRS_TWAVE_PERIOD       23    /*!< T-wave discrimination period (360 ms at 64 Hz) */
 #define QRS_LEARNING_SAMPLES   128   /*!< Samples for learning phase (2 seconds at 64 Hz) */
 
 /* Public enumerate/structure ----------------------------------------- */
 typedef struct {
     // Filter states
-    int32_t bandpass_buffer[16];  /**< Buffer for bandpass filter */
+    int32_t baseline_buffer[64];  /**< Buffer for baseline removal (cutoff ~0.3 Hz) */
+    int32_t lowpass_buffer[20];   /**< Buffer for low-pass filter (cutoff ~12 Hz) */
+    int32_t highpass_buffer[64];  /**< Buffer for high-pass filter (cutoff ~0.5 Hz) */
+    int32_t early_smooth_buffer[5]; /**< Buffer for early smoothing after bandpass */
     int32_t deriv_buffer[5];      /**< Buffer for derivative */
+    int32_t smooth_buffer[4];     /**< Buffer for smoothing after squaring */
     int32_t integ_buffer[QRS_WINDOW_SIZE]; /**< Buffer for moving window integration */
     uint8_t integ_index;          /**< Index for integration buffer */
 
