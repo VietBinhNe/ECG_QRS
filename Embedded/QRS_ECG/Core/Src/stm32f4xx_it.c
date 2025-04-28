@@ -36,7 +36,9 @@ extern uint8_t qrs_flag_index;
 /* External variables --------------------------------------------------------*/
 extern DMA_HandleTypeDef hdma_adc1;
 extern TIM_HandleTypeDef htim2;
+/* USER CODE BEGIN EV */
 
+/* USER CODE END EV */
 
 /******************************************************************************/
 /*           Cortex-M4 Processor Interruption and Exception Handlers          */
@@ -178,28 +180,32 @@ void SysTick_Handler(void)
 
 /**
   * @brief This function handles TIM2 global interrupt.
-  * Interrupt 64 times per second
   */
 void TIM2_IRQHandler(void)
 {
   /* USER CODE BEGIN TIM2_IRQn 0 */
-  uint16_t filtered_value = MovingAverageFilter_Apply(&adc_filter, (uint16_t)ADC_value);
+  // Sử dụng trực tiếp giá trị ADC thô (b�? qua bộ l�?c trung bình trượt)
+  uint16_t raw_value = (uint16_t)ADC_value;
 
-  uint8_t is_qrs = QRSDetector_Process(&qrs_detector, filtered_value); 
+  // Phát hiện QRS
+  uint8_t is_qrs = QRSDetector_Process(&qrs_detector, raw_value);
 
+  // Lưu c�? QRS vào mảng
   if (qrs_flag_index < 64) {
     qrs_flags[qrs_flag_index] = is_qrs;
     qrs_flag_index++;
   }
 
-  uint8_t high_byte = (filtered_value >> 8) & 0xFF; 
-  uint8_t low_byte = filtered_value & 0xFF;         
+  // Ghi giá trị ADC thô vào Circular Buffer (giá trị 16-bit, chia thành 2 byte)
+  uint8_t high_byte = (raw_value >> 8) & 0xFF; // Byte cao
+  uint8_t low_byte = raw_value & 0xFF;         // Byte thấp
   cb_write(&adc_buffer, &high_byte, 1);
   cb_write(&adc_buffer, &low_byte, 1);
 
-  if (cb_data_count(&adc_buffer) >= 128) 
+  // Kiểm tra số lượng dữ liệu trong bộ đệm
+  if (cb_data_count(&adc_buffer) >= 128) // 128 byte = 64 mẫu (mỗi mẫu 2 byte)
   {
-    send_flag = 1; 
+    send_flag = 1; // �?ặt c�? để gửi dữ liệu trong main
   }
   /* USER CODE END TIM2_IRQn 0 */
   HAL_TIM_IRQHandler(&htim2);
