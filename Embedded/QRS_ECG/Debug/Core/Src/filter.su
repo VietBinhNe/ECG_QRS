@@ -1,2 +1,4 @@
 ../Core/Src/filter.c:38:6:MovingAverageFilter_Init	24	static
 ../Core/Src/filter.c:47:10:MovingAverageFilter_Apply	24	static
+../Core/Src/filter.c:68:6:BandpassFilter_Init	24	static
+../Core/Src/filter.c:80:9:BandpassFilter_Apply	40	static
