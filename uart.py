@@ -1,221 +1,214 @@
-# import serial
-# import time
-# import numpy as np
-# import matplotlib.pyplot as plt
-# from matplotlib.animation import FuncAnimation
-
-# # Cấu hình cổng COM
-# port = 'COM12'
-# baudrate = 115200
-
-# # Mở kết nối UART
-# try:
-#     ser = serial.Serial(port, baudrate, timeout=1)
-#     print(f"Đã kết nối thành công với cổng {port}")
-# except serial.SerialException as e:
-#     print(f"Lỗi khi kết nối cổng {port}: {e}")
-#     exit()
-
-# # Gửi lệnh 'S' để kích hoạt STM32 gửi dữ liệu
-# try:
-#     ser.write(b'S')
-#     print("Đã gửi lệnh 'S' để yêu cầu dữ liệu từ STM32")
-# except Exception as e:
-#     print(f"Lỗi khi gửi lệnh 'S': {e}")
-
-# # Khởi tạo dữ liệu cho đồ thị
-# WINDOW_SIZE = 320  # Số mẫu hiển thị trên đồ thị (5 giây dữ liệu với 64 mẫu/giây)
-# SAMPLES_PER_UPDATE = 64  # Số mẫu mỗi lần cập nhật
-# WINDOW_TIME = WINDOW_SIZE / 64  # Thời gian hiển thị trên đồ thị (giây)
-
-# data_buffer = np.zeros(WINDOW_SIZE)  # Mảng lưu trữ dữ liệu ADC
-# qrs_positions = []  # Lưu vị trí QRS (chỉ số mẫu trong cửa sổ)
-# qrs_timestamps = []  # Lưu thời gian QRS (giây)
-# qrs_samples = []  # Lưu chỉ số mẫu toàn cục của QRS
-
-# # Cài đặt đồ thị
-# fig, ax = plt.subplots(figsize=(10, 6))
-# x = np.linspace(0, WINDOW_TIME, WINDOW_SIZE)  # Trục x là thời gian (giây)
-# line, = ax.plot(x, data_buffer, '-', label='ECG Signal')
-# qrs_markers, = ax.plot([], [], 'ro', markersize=10, label='QRS Peaks')
-# ax.set_ylim(0, 4095)
-# ax.set_xlim(0, WINDOW_TIME)
-# ax.set_xlabel('Thời gian (giây)')
-# ax.set_ylabel('Giá trị ADC')
-# ax.set_title('Dạng sóng ECG với đỉnh QRS')
-# plt.grid(True)
-# plt.legend()
-
-# # Biến để theo dõi vị trí mẫu hiện tại
-# current_sample_index = 0
-
-# # Hàm cập nhật đồ thị
-# def update_plot(frame):
-#     global data_buffer, qrs_positions, qrs_timestamps, qrs_samples, current_sample_index
-#     while ser.in_waiting > 0:
-#         # Đọc một dòng dữ liệu
-#         line_data = ser.readline().decode('utf-8').strip()
-#         print(f"Dữ liệu nhận được: {line_data}")
-
-#         # Bỏ qua dữ liệu debug (có chứa "BP:")
-#         if "BP:" in line_data:
-#             continue
-
-#         try:
-#             # Dữ liệu gồm 64 mẫu ADC + 64 cờ QRS
-#             data = list(map(int, line_data.split(',')))
-#             if len(data) == 128:  # 64 mẫu ADC + 64 cờ QRS
-#                 adc_values = data[:SAMPLES_PER_UPDATE]  # 64 mẫu ADC
-#                 qrs_flags = data[SAMPLES_PER_UPDATE:]   # 64 cờ QRS
-
-#                 # Dịch chuyển dữ liệu cũ và thêm dữ liệu mới
-#                 data_buffer[:-SAMPLES_PER_UPDATE] = data_buffer[SAMPLES_PER_UPDATE:]
-#                 data_buffer[-SAMPLES_PER_UPDATE:] = adc_values
-
-#                 # Tìm vị trí QRS từ cờ QRS
-#                 for i in range(SAMPLES_PER_UPDATE):
-#                     if qrs_flags[i] == 1:
-#                         # Tính chỉ số mẫu toàn cục của QRS
-#                         sample_index = current_sample_index + i
-#                         # Tính vị trí QRS trong cửa sổ hiện tại
-#                         pos = sample_index % WINDOW_SIZE
-#                         # Tính thời gian QRS (giây)
-#                         timestamp = (sample_index / 64) * WINDOW_TIME
-#                         timestamp = timestamp % WINDOW_TIME  # Đảm bảo thời gian nằm trong cửa sổ
-#                         qrs_samples.append(sample_index)
-#                         qrs_positions.append(pos)
-#                         qrs_timestamps.append(timestamp)
-#                         print(f"QRS detected at sample {sample_index}, position in window: {pos}, timestamp: {timestamp}")
-
-#                 current_sample_index += SAMPLES_PER_UPDATE
-
-#                 # Lọc các vị trí QRS ngoài cửa sổ hiển thị
-#                 new_samples = []
-#                 new_positions = []
-#                 new_timestamps = []
-#                 for sample, pos, ts in zip(qrs_samples, qrs_positions, qrs_timestamps):
-#                     # Tính số mẫu đã trôi qua từ khi QRS được phát hiện
-#                     elapsed_samples = current_sample_index - sample
-#                     if elapsed_samples < WINDOW_SIZE:
-#                         # QRS vẫn nằm trong cửa sổ hiển thị
-#                         relative_pos = (WINDOW_SIZE - elapsed_samples) % WINDOW_SIZE
-#                         relative_ts = (WINDOW_TIME - (elapsed_samples / 64) * WINDOW_TIME) % WINDOW_TIME
-#                         new_samples.append(sample)
-#                         new_positions.append(relative_pos)
-#                         new_timestamps.append(relative_ts)
-
-#                 qrs_samples = new_samples
-#                 qrs_positions = new_positions
-#                 qrs_timestamps = new_timestamps
-
-#                 # Cập nhật giá trị y của các điểm QRS
-#                 qrs_values = [data_buffer[pos] for pos in qrs_positions]
-#                 print(f"QRS samples: {qrs_samples}")
-#                 print(f"QRS positions: {qrs_positions}")
-#                 print(f"QRS timestamps: {qrs_timestamps}")
-#                 print(f"QRS values: {qrs_values}")
-
-#                 # Cập nhật đồ thị
-#                 qrs_markers.set_data(qrs_timestamps, qrs_values)
-#                 line.set_ydata(data_buffer)
-#             else:
-#                 print(f"Dữ liệu không đủ 128 giá trị, nhận được {len(data)} giá trị")
-#         except ValueError as e:
-#             print(f"Lỗi khi chuyển đổi dữ liệu: {e}")
-#     return line, qrs_markers
-
-# # Chạy animation
-# ani = FuncAnimation(fig, update_plot, interval=100, blit=True)
-
-# # Hiển thị đồ thị
-# try:
-#     plt.show()
-# except KeyboardInterrupt:
-#     print("Dừng chương trình")
-
-# # Đóng kết nối UART
-# ser.close()
-# print("Đã đóng kết nối UART")
-
+import sys
 import serial
 import numpy as np
-import matplotlib.pyplot as plt
+from PyQt5.QtWidgets import QApplication, QMainWindow, QVBoxLayout, QWidget, QPushButton, QHBoxLayout
+from PyQt5.QtCore import QTimer
+import pyqtgraph as pg
 
-port = 'COM12'
-baudrate = 115200
+class ECGDisplay(QMainWindow):
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle("Hiển thị sóng ECG")
+        self.setGeometry(100, 100, 1200, 800)
 
-try:
-    ser = serial.Serial(port, baudrate, timeout=1)
-    print(f"Đã kết nối thành công với cổng {port}")
-except serial.SerialException as e:
-    print(f"Lỗi khi kết nối cổng {port}: {e}")
-    exit()
+        # Set white background for the main window
+        self.setStyleSheet("background-color: white;")
 
-try:
-    ser.write(b'S')
-    print("Đã gửi lệnh 'S' để yêu cầu dữ liệu từ STM32")
-except Exception as e:
-    print(f"Lỗi khi gửi lệnh 'S': {e}")
+        # Configure UART port
+        self.serial_port = serial.Serial('COM12', 115200, timeout=1)  # Replace 'COM12' with your port
+        self.sampling_rate = 200  # Hz (based on TIM2 calculation: ~199.2 Hz, approximated to 200 Hz)
+        self.display_samples = 2000  # Display 10 seconds of continuous data (200 Hz * 10 seconds)
+        self.first_10s_samples = 2000  # 10 seconds of data for plots 2 and 3
 
-TOTAL_SAMPLES = 384 
-SAMPLES_PER_UPDATE = 64  
-TOTAL_UPDATES = TOTAL_SAMPLES // SAMPLES_PER_UPDATE  
+        # Data for the plots
+        self.raw_data = []  # Raw data (ADC)
+        self.filtered_data = []  # Filtered data (bandpass)
+        self.qrs_flags = []  # QRS flags received from UART
+        self.first_10s_raw = []  # First 10 seconds of raw data
+        self.first_10s_filtered = []  # First 10 seconds of filtered data
+        self.first_10s_qrs = []  # First 10 seconds of QRS flags
+        self.is_running = True  # Running/paused state
+        self.first_10s_collected = False  # Flag to check if first 10 seconds are collected
+        self.qrs_display_enabled = False  # Flag to control QRS display on plot 3
 
-data_buffer = np.zeros(TOTAL_SAMPLES)  
-qrs_flags_buffer = np.zeros(TOTAL_SAMPLES) 
-updates_received = 0  
+        # Create the interface
+        self.central_widget = QWidget()
+        self.setCentralWidget(self.central_widget)
+        self.layout = QVBoxLayout(self.central_widget)
 
-while updates_received < TOTAL_UPDATES:
-    while ser.in_waiting == 0:
-        pass  
-    
-    line_data = ser.readline().decode('utf-8').strip()
-    print(f"Dữ liệu nhận được: {line_data}")
+        # Plot 1: Continuous filtered signal
+        self.plot_widget1 = pg.PlotWidget(title="Sóng ECG liên tục (Đã lọc)")
+        self.plot_widget1.setBackground('w')  # White background
+        self.plot_widget1.setLabel('left', 'Giá trị (ADC)', color='black')
+        self.plot_widget1.setLabel('bottom', 'Thời gian (giây)', color='black')
+        self.plot_widget1.setYRange(-2048, 2048)  # Range for filtered signal
+        self.plot_widget1.setXRange(0, 10)  # 10 seconds
+        self.plot_widget1.getAxis('left').setTextPen('black')
+        self.plot_widget1.getAxis('bottom').setTextPen('black')
+        self.plot_data1 = self.plot_widget1.plot(pen='b')  # ECG line
+        self.qrs_plot1 = self.plot_widget1.plot(pen=None, symbol='o', symbolPen='r', symbolBrush='r', symbolSize=10)  # QRS points
+        self.layout.addWidget(self.plot_widget1)
 
-    if "BP:" in line_data:
-        continue
+        # Button layout for Pause/Continue and Detect
+        self.button_layout = QHBoxLayout()
+        self.pause_button = QPushButton("Dừng")
+        self.pause_button.setStyleSheet("background-color: lightgray; color: black;")
+        self.pause_button.clicked.connect(self.toggle_pause)
+        self.button_layout.addWidget(self.pause_button)
 
-    try:
-        data = list(map(int, line_data.split(',')))
-        if len(data) == 128:  
-            adc_values = data[:SAMPLES_PER_UPDATE]  
-            qrs_flags = data[SAMPLES_PER_UPDATE:]   
+        self.detect_button = QPushButton("Detect")
+        self.detect_button.setStyleSheet("background-color: lightgray; color: black;")
+        self.detect_button.clicked.connect(self.detect_qrs)
+        self.button_layout.addWidget(self.detect_button)
 
-            start_idx = updates_received * SAMPLES_PER_UPDATE
-            end_idx = start_idx + SAMPLES_PER_UPDATE
-            data_buffer[start_idx:end_idx] = adc_values
-            qrs_flags_buffer[start_idx:end_idx] = qrs_flags
-            updates_received += 1
+        self.layout.addLayout(self.button_layout)
+
+        # Plot 2: First 10 seconds of raw data
+        self.plot_widget2 = pg.PlotWidget(title="10 giây đầu (Chưa lọc)")
+        self.plot_widget2.setBackground('w')  # White background
+        self.plot_widget2.setLabel('left', 'Giá trị (ADC)', color='black')
+        self.plot_widget2.setLabel('bottom', 'Thời gian (giây)', color='black')
+        self.plot_widget2.setYRange(0, 4096)
+        self.plot_widget2.setXRange(0, 10)
+        self.plot_widget2.getAxis('left').setTextPen('black')
+        self.plot_widget2.getAxis('bottom').setTextPen('black')
+        self.plot_data2 = self.plot_widget2.plot(pen='r')  # ECG line
+        self.qrs_plot2 = self.plot_widget2.plot(pen=None, symbol='o', symbolPen='r', symbolBrush='r', symbolSize=10)  # QRS points
+        self.layout.addWidget(self.plot_widget2)
+
+        # Plot 3: First 10 seconds of filtered data
+        self.plot_widget3 = pg.PlotWidget(title="10 giây đầu (Đã lọc)")
+        self.plot_widget3.setBackground('w')  # White background
+        self.plot_widget3.setLabel('left', 'Giá trị (ADC)', color='black')
+        self.plot_widget3.setLabel('bottom', 'Thời gian (giây)', color='black')
+        self.plot_widget3.setYRange(-2048, 2048)
+        self.plot_widget3.setXRange(0, 10)
+        self.plot_widget3.getAxis('left').setTextPen('black')
+        self.plot_widget3.getAxis('bottom').setTextPen('black')
+        self.plot_data3 = self.plot_widget3.plot(pen='g')  # ECG line
+        self.qrs_plot3 = self.plot_widget3.plot(pen=None, symbol='o', symbolPen='r', symbolBrush='r', symbolSize=10)  # QRS points
+        self.layout.addWidget(self.plot_widget3)
+
+        # Timer to update data
+        self.timer = QTimer()
+        self.timer.timeout.connect(self.update_data)
+        self.timer.start(50)  # Update every 50ms
+
+        # Buffer to read UART data
+        self.buffer = bytearray()
+
+    def toggle_pause(self):
+        if self.is_running:
+            self.is_running = False
+            self.pause_button.setText("Tiếp tục")
         else:
-            print(f"Dữ liệu không đủ 128 giá trị, nhận được {len(data)} giá trị")
-    except ValueError as e:
-        print(f"Lỗi khi chuyển đổi dữ liệu: {e}")
+            self.is_running = True
+            self.pause_button.setText("Dừng")
 
-ser.close()
-print("Đã đóng kết nối UART")
+    def detect_qrs(self):
+        # Enable QRS display on plot 3
+        self.qrs_display_enabled = True
+        self.update_plots()
 
-START_TIME = 2  
-END_TIME = 6    
-START_SAMPLE = int(START_TIME * 64)  
-END_SAMPLE = int(END_TIME * 64)      
-DISPLAY_SAMPLES = END_SAMPLE - START_SAMPLE  
+    def update_data(self):
+        if not self.is_running:
+            return
 
-display_data = data_buffer[START_SAMPLE:END_SAMPLE]
-display_qrs_flags = qrs_flags_buffer[START_SAMPLE:END_SAMPLE]
+        # Read data from UART
+        while self.serial_port.in_waiting > 0:
+            self.buffer.extend(self.serial_port.read(self.serial_port.in_waiting))
 
-x_time = np.linspace(START_TIME, END_TIME, DISPLAY_SAMPLES)  
-qrs_indices = np.where(display_qrs_flags == 1)[0]  
-qrs_timestamps = x_time[qrs_indices]  
-qrs_values = display_data[qrs_indices]  
+            # Find data frame: Start byte (0xAA) to End byte (0xBB)
+            while len(self.buffer) > 0:
+                # Find start byte
+                if self.buffer[0] != 0xAA:
+                    self.buffer.pop(0)
+                    continue
 
-fig, ax = plt.subplots(figsize=(10, 6))
-ax.plot(x_time, display_data, '-', label='ECG Signal')  
-ax.plot(qrs_timestamps, qrs_values, 'ro', markersize=10, label='R Peaks')  
-ax.set_ylim(0, 4095)
-ax.set_xlim(START_TIME, END_TIME)
-ax.set_xlabel('Thời gian (giây)')
-ax.set_ylabel('Giá trị ADC')
-ax.set_title('Dạng sóng ECG với đỉnh R (Giây 2 đến 6)')
-plt.grid(True)
-plt.legend()
-plt.show()
+                # Check frame length: Start byte (1) + 64 raw (2 bytes each) + 64 bandpass (2 bytes each) + 64 QRS flags (1 byte each) + End byte (1) = 322 bytes
+                if len(self.buffer) < 322:
+                    break
+
+                # Check end byte
+                if self.buffer[321] != 0xBB:
+                    self.buffer.pop(0)
+                    continue
+
+                # Extract data from frame
+                frame = self.buffer[:322]
+                self.buffer = self.buffer[322:]
+
+                # Parse data: 64 raw samples (2 bytes each) + 64 bandpass samples (2 bytes each) + 64 QRS flags (1 byte each)
+                raw_values = []
+                bandpass_values = []
+                qrs_flags = []
+                for i in range(64):
+                    idx = 1 + i * 2  # Start position of each raw sample
+                    value = (frame[idx] << 8) | frame[idx + 1]
+                    raw_values.append(value)
+                for i in range(64):
+                    idx = 129 + i * 2  # Start position of each bandpass sample
+                    value = (frame[idx] << 8) | frame[idx + 1]
+                    if value & 0x8000:  # Check sign bit
+                        value -= 65536  # Convert to negative
+                    bandpass_values.append(value)
+                for i in range(64):
+                    idx = 257 + i  # Start position of QRS flags
+                    qrs_flags.append(frame[idx])
+
+                # Store continuous data
+                self.raw_data.extend(raw_values)
+                self.filtered_data.extend(bandpass_values)
+                self.qrs_flags.extend(qrs_flags)
+
+                # Limit data for continuous display (plot 1)
+                if len(self.raw_data) > self.display_samples:
+                    self.raw_data = self.raw_data[-self.display_samples:]
+                    self.filtered_data = self.filtered_data[-self.display_samples:]
+                    self.qrs_flags = self.qrs_flags[-self.display_samples:]
+
+                # Store first 10 seconds for plots 2 and 3
+                if not self.first_10s_collected and len(self.first_10s_raw) < self.first_10s_samples:
+                    self.first_10s_raw.extend(raw_values)
+                    self.first_10s_filtered.extend(bandpass_values)
+                    self.first_10s_qrs.extend(qrs_flags)
+                if len(self.first_10s_raw) >= self.first_10s_samples:
+                    self.first_10s_collected = True
+
+        self.update_plots()
+
+    def update_plots(self):
+        # Update plot 1: Continuous filtered signal
+        if len(self.filtered_data) > 0:
+            time_axis = np.linspace(0, 10, len(self.filtered_data))
+            self.plot_data1.setData(time_axis, self.filtered_data)
+            self.qrs_plot1.setData([], [])  # No QRS display on plot 1
+
+        # Update plot 2: First 10 seconds of raw data
+        if self.first_10s_collected:
+            time_axis_10s = np.linspace(0, 10, len(self.first_10s_raw))
+            self.plot_data2.setData(time_axis_10s, self.first_10s_raw)
+            self.qrs_plot2.setData([], [])  # No QRS display on plot 2
+
+        # Update plot 3: First 10 seconds of filtered data
+        if self.first_10s_collected:
+            time_axis_10s = np.linspace(0, 10, len(self.first_10s_filtered))
+            self.plot_data3.setData(time_axis_10s, self.first_10s_filtered)
+            if self.qrs_display_enabled:
+                qrs_indices_10s = np.where(np.array(self.first_10s_qrs) == 1)[0]
+                qrs_timestamps_10s = time_axis_10s[qrs_indices_10s]
+                qrs_values_10s = np.array(self.first_10s_filtered)[qrs_indices_10s]
+                self.qrs_plot3.setData(qrs_timestamps_10s, qrs_values_10s)
+            else:
+                self.qrs_plot3.setData([], [])
+
+    def closeEvent(self, event):
+        # Close UART port when exiting
+        self.serial_port.close()
+        event.accept()
+
+if __name__ == '__main__':
+    app = QApplication(sys.argv)
+    window = ECGDisplay()
+    window.show()
+    sys.exit(app.exec_())
