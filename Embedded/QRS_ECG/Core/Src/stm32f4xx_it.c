@@ -27,7 +27,6 @@
 /* USER CODE BEGIN PV */
 
 // Declare global variables defined in main.c
-extern MovingAverageFilter adc_filter;
 extern BandpassFilter bandpass_filter;
 extern cbuffer_t adc_buffer;
 extern uint8_t adc_buffer_data[512];
