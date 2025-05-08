@@ -2,8 +2,8 @@
  * @file       main.c
  * @copyright  Copyright (C) 2025 HCMUS. All rights reserved.
  * @license    This project is released under the VB's License.
- * @version    1.0.0
- * @date       2025-03-25
+ * @version    1.0.5
+ * @date       2025-05-06
  * @author     Binh Nguyen
  *
  * @brief      main
@@ -25,17 +25,23 @@
 
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
-extern MovingAverageFilter adc_filter;
-extern cbuffer_t adc_buffer;
-extern uint8_t adc_buffer_data[512];
-extern QRSDetector qrs_detector;
+MovingAverageFilter adc_filter;
+BandpassFilter bandpass_filter;
+cbuffer_t adc_buffer;
+uint8_t adc_buffer_data[512];
+QRSDetector qrs_detector;
 uint8_t qrs_flags[64];
-uint8_t qrs_flag_index = 0;
+uint8_t qrs_flag_index;
+int32_t first_10s_filtered[2000];  // Buffer to store first 10 seconds of filtered data (2000 samples at 200 Hz)
+uint8_t first_10s_qrs_flags[2000]; // Buffer to store QRS flags for first 10 seconds
+uint32_t first_10s_count = 0;      // Counter for first 10 seconds of data
+uint8_t first_10s_ready = 0;       // Flag to indicate if first 10 seconds are ready
 /* USER CODE END PTD */
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-
+#define START_BYTE 0xAA
+#define END_BYTE 0xBB
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -52,7 +58,7 @@ TIM_HandleTypeDef htim2;
 UART_HandleTypeDef huart2;
 
 /* USER CODE BEGIN PV */
-char sendBuffer[600]; // 64 * 4 = 256 -> 350 is quite good
+uint8_t sendBuffer[300]; // Buffer for UART transmission: Start byte + 64 raw (2 bytes each) + 64 bandpass (2 bytes each) + 64 QRS flags (1 byte each) + End byte
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -77,7 +83,6 @@ static void MX_TIM2_Init(void);
   */
 int main(void)
 {
-
   /* USER CODE BEGIN 1 */
 
   /* USER CODE END 1 */
@@ -106,15 +111,16 @@ int main(void)
   MX_TIM2_Init();
   /* USER CODE BEGIN 2 */
   MovingAverageFilter_Init(&adc_filter);
+  BandpassFilter_Init(&bandpass_filter);
   cb_init(&adc_buffer, adc_buffer_data, sizeof(adc_buffer_data));
   QRSDetector_Init(&qrs_detector);
   memset(qrs_flags, 0, sizeof(qrs_flags));
+  qrs_flag_index = 0;
+  memset(first_10s_filtered, 0, sizeof(first_10s_filtered));
+  memset(first_10s_qrs_flags, 0, sizeof(first_10s_qrs_flags));
   HAL_TIM_Base_Start_IT(&htim2);
   HAL_ADC_Start_DMA(&hadc1, &ADC_value, 1);
-  HAL_ADC_Start_IT(&hadc1); // dma knows when the conversion done
-
-//  memset(ADC_Values, 0, sizeof(ADC_Values));
-
+  HAL_ADC_Start_IT(&hadc1);
 
   /* USER CODE END 2 */
 
@@ -128,29 +134,51 @@ int main(void)
 	  if(send_flag == 1)
 	  {
 		  send_flag = 0;
-		  memset(sendBuffer, 0, sizeof(sendBuffer));
-		  uint8_t temp_buffer[128]; // 64 sample x 2 byte
-		  uint32_t bytes_read = cb_read(&adc_buffer, temp_buffer, 128);
-			if(bytes_read == 128)
+		  uint8_t temp_buffer[256]; // 64 samples x 4 bytes (2 bytes raw + 2 bytes bandpass)
+		  uint32_t bytes_read = cb_read(&adc_buffer, temp_buffer, 256);
+			if(bytes_read == 256)
 			{
-				for (int i = 0; i < 64; i++)
-				      {
-				        uint16_t value = (temp_buffer[i * 2] << 8) | temp_buffer[i * 2 + 1];
-				        sprintf(&sendBuffer[strlen(sendBuffer)], "%u,", value);
-				      }
-				      // Send QRS Flag (64 bit: 0 / 1)
-				      for (int i = 0; i < 64; i++)
-				      {
-				        sprintf(&sendBuffer[strlen(sendBuffer)], "%u", qrs_flags[i]);
-				        if (i < 63) {
-				          sprintf(&sendBuffer[strlen(sendBuffer)], ",");
-				        }
-				      }
-				      sprintf(&sendBuffer[strlen(sendBuffer)], "\n");
-				      HAL_UART_Transmit(&huart2, (uint8_t*)sendBuffer, strlen(sendBuffer), 200);
+				// Prepare data to send: Start byte + 64 raw samples (2 bytes each) + 64 bandpass samples (2 bytes each) + 64 QRS flags (1 byte each) + End byte
+				int idx = 0;
+				sendBuffer[idx++] = START_BYTE; // Start byte
 
-				      memset(qrs_flags, 0, sizeof(qrs_flags));
-				      qrs_flag_index = 0;
+				// Send 64 raw samples (2 bytes each)
+				for (int i = 0; i < 64; i++)
+				{
+					uint16_t raw_value = (temp_buffer[i * 4] << 8) | temp_buffer[i * 4 + 1];
+					sendBuffer[idx++] = (raw_value >> 8) & 0xFF;
+					sendBuffer[idx++] = raw_value & 0xFF;
+				}
+
+				// Send 64 bandpass samples (2 bytes each)
+				for (int i = 0; i < 64; i++)
+				{
+					int16_t bp_value = (temp_buffer[i * 4 + 2] << 8) | temp_buffer[i * 4 + 3];
+					sendBuffer[idx++] = (bp_value >> 8) & 0xFF;
+					sendBuffer[idx++] = bp_value & 0xFF;
+				}
+
+				// Send 64 QRS flags (1 byte each) - Use first_10s_qrs_flags if available
+				for (int i = 0; i < 64; i++)
+				{
+					if (first_10s_ready && qrs_flag_index < 2000)
+					{
+						sendBuffer[idx++] = first_10s_qrs_flags[qrs_flag_index];
+					}
+					else
+					{
+						sendBuffer[idx++] = 0;
+					}
+				}
+
+				sendBuffer[idx++] = END_BYTE; // End byte
+
+				// Send data via UART
+				HAL_UART_Transmit(&huart2, sendBuffer, idx, 200);
+
+				// Reset QRS flags
+				memset(qrs_flags, 0, sizeof(qrs_flags));
+				qrs_flag_index = 0;
 			}
 			else
 			{
@@ -215,19 +243,8 @@ void SystemClock_Config(void)
   */
 static void MX_ADC1_Init(void)
 {
-
-  /* USER CODE BEGIN ADC1_Init 0 */
-
-  /* USER CODE END ADC1_Init 0 */
-
   ADC_ChannelConfTypeDef sConfig = {0};
 
-  /* USER CODE BEGIN ADC1_Init 1 */
-
-  /* USER CODE END ADC1_Init 1 */
-
-  /** Configure the global features of the ADC (Clock, Resolution, Data Alignment and number of conversion)
-  */
   hadc1.Instance = ADC1;
   hadc1.Init.ClockPrescaler = ADC_CLOCK_SYNC_PCLK_DIV4;
   hadc1.Init.Resolution = ADC_RESOLUTION_12B;
@@ -245,8 +262,6 @@ static void MX_ADC1_Init(void)
     Error_Handler();
   }
 
-  /** Configure for the selected ADC regular channel its corresponding rank in the sequencer and its sample time.
-  */
   sConfig.Channel = ADC_CHANNEL_0;
   sConfig.Rank = 1;
   sConfig.SamplingTime = ADC_SAMPLETIME_480CYCLES;
@@ -254,10 +269,6 @@ static void MX_ADC1_Init(void)
   {
     Error_Handler();
   }
-  /* USER CODE BEGIN ADC1_Init 2 */
-
-  /* USER CODE END ADC1_Init 2 */
-
 }
 
 /**
@@ -267,17 +278,9 @@ static void MX_ADC1_Init(void)
   */
 static void MX_TIM2_Init(void)
 {
-
-  /* USER CODE BEGIN TIM2_Init 0 */
-
-  /* USER CODE END TIM2_Init 0 */
-
   TIM_ClockConfigTypeDef sClockSourceConfig = {0};
   TIM_MasterConfigTypeDef sMasterConfig = {0};
 
-  /* USER CODE BEGIN TIM2_Init 1 */
-
-  /* USER CODE END TIM2_Init 1 */
   htim2.Instance = TIM2;
   htim2.Init.Prescaler = 1999;
   htim2.Init.CounterMode = TIM_COUNTERMODE_UP;
@@ -299,10 +302,6 @@ static void MX_TIM2_Init(void)
   {
     Error_Handler();
   }
-  /* USER CODE BEGIN TIM2_Init 2 */
-
-  /* USER CODE END TIM2_Init 2 */
-
 }
 
 /**
@@ -312,14 +311,6 @@ static void MX_TIM2_Init(void)
   */
 static void MX_USART2_UART_Init(void)
 {
-
-  /* USER CODE BEGIN USART2_Init 0 */
-
-  /* USER CODE END USART2_Init 0 */
-
-  /* USER CODE BEGIN USART2_Init 1 */
-
-  /* USER CODE END USART2_Init 1 */
   huart2.Instance = USART2;
   huart2.Init.BaudRate = 115200;
   huart2.Init.WordLength = UART_WORDLENGTH_8B;
@@ -332,10 +323,6 @@ static void MX_USART2_UART_Init(void)
   {
     Error_Handler();
   }
-  /* USER CODE BEGIN USART2_Init 2 */
-
-  /* USER CODE END USART2_Init 2 */
-
 }
 
 /**
@@ -343,7 +330,6 @@ static void MX_USART2_UART_Init(void)
   */
 static void MX_DMA_Init(void)
 {
-
   /* DMA controller clock enable */
   __HAL_RCC_DMA2_CLK_ENABLE();
 
@@ -351,7 +337,6 @@ static void MX_DMA_Init(void)
   /* DMA2_Stream0_IRQn interrupt configuration */
   HAL_NVIC_SetPriority(DMA2_Stream0_IRQn, 0, 0);
   HAL_NVIC_EnableIRQ(DMA2_Stream0_IRQn);
-
 }
 
 /**
@@ -361,20 +346,10 @@ static void MX_DMA_Init(void)
   */
 static void MX_GPIO_Init(void)
 {
-/* USER CODE BEGIN MX_GPIO_Init_1 */
-/* USER CODE END MX_GPIO_Init_1 */
-
   /* GPIO Ports Clock Enable */
   __HAL_RCC_GPIOH_CLK_ENABLE();
   __HAL_RCC_GPIOA_CLK_ENABLE();
-
-/* USER CODE BEGIN MX_GPIO_Init_2 */
-/* USER CODE END MX_GPIO_Init_2 */
 }
-
-/* USER CODE BEGIN 4 */
-
-/* USER CODE END 4 */
 
 /**
   * @brief  This function is executed in case of error occurrence.
@@ -382,13 +357,10 @@ static void MX_GPIO_Init(void)
   */
 void Error_Handler(void)
 {
-  /* USER CODE BEGIN Error_Handler_Debug */
-  /* User can add his own implementation to report the HAL error return state */
   __disable_irq();
   while (1)
   {
   }
-  /* USER CODE END Error_Handler_Debug */
 }
 
 #ifdef  USE_FULL_ASSERT
@@ -401,9 +373,5 @@ void Error_Handler(void)
   */
 void assert_failed(uint8_t *file, uint32_t line)
 {
-  /* USER CODE BEGIN 6 */
-  /* User can add his own implementation to report the file name and line number,
-     ex: printf("Wrong parameters value: file %s on line %d\r\n", file, line) */
-  /* USER CODE END 6 */
 }
 #endif /* USE_FULL_ASSERT */

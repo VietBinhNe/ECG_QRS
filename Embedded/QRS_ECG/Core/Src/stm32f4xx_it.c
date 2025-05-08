@@ -1,4 +1,3 @@
-/* USER CODE BEGIN Header */
 /**
   ******************************************************************************
   * @file    stm32f4xx_it.c
@@ -15,7 +14,6 @@
   *
   ******************************************************************************
   */
-/* USER CODE END Header */
 
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
@@ -26,16 +24,27 @@
 #include "qrs_detector.h"
 
 /* Private variables ---------------------------------------------------------*/
-MovingAverageFilter adc_filter;
-cbuffer_t adc_buffer;
-uint8_t adc_buffer_data[512];
-QRSDetector qrs_detector;
-extern uint8_t qrs_flags[64];
-extern uint8_t qrs_flag_index;
+/* USER CODE BEGIN PV */
+
+// Declare global variables defined in main.c
+extern MovingAverageFilter adc_filter;
+extern BandpassFilter bandpass_filter;
+extern cbuffer_t adc_buffer;
+extern uint8_t adc_buffer_data[512];
+extern QRSDetector qrs_detector;
+extern int32_t first_10s_filtered[2000];
+extern uint8_t first_10s_qrs_flags[2000];
+extern uint32_t first_10s_count;
+extern uint8_t first_10s_ready;
+
+/* USER CODE END PV */
 
 /* External variables --------------------------------------------------------*/
 extern DMA_HandleTypeDef hdma_adc1;
 extern TIM_HandleTypeDef htim2;
+extern uint8_t qrs_flags[64];
+extern uint8_t qrs_flag_index;
+
 /* USER CODE BEGIN EV */
 
 /* USER CODE END EV */
@@ -48,14 +57,9 @@ extern TIM_HandleTypeDef htim2;
   */
 void NMI_Handler(void)
 {
-  /* USER CODE BEGIN NonMaskableInt_IRQn 0 */
-
-  /* USER CODE END NonMaskableInt_IRQn 0 */
-  /* USER CODE BEGIN NonMaskableInt_IRQn 1 */
-   while (1)
+  while (1)
   {
   }
-  /* USER CODE END NonMaskableInt_IRQn 1 */
 }
 
 /**
@@ -63,13 +67,8 @@ void NMI_Handler(void)
   */
 void HardFault_Handler(void)
 {
-  /* USER CODE BEGIN HardFault_IRQn 0 */
-
-  /* USER CODE END HardFault_IRQn 0 */
   while (1)
   {
-    /* USER CODE BEGIN W1_HardFault_IRQn 0 */
-    /* USER CODE END W1_HardFault_IRQn 0 */
   }
 }
 
@@ -78,13 +77,8 @@ void HardFault_Handler(void)
   */
 void MemManage_Handler(void)
 {
-  /* USER CODE BEGIN MemoryManagement_IRQn 0 */
-
-  /* USER CODE END MemoryManagement_IRQn 0 */
   while (1)
   {
-    /* USER CODE BEGIN W1_MemoryManagement_IRQn 0 */
-    /* USER CODE END W1_MemoryManagement_IRQn 0 */
   }
 }
 
@@ -93,13 +87,8 @@ void MemManage_Handler(void)
   */
 void BusFault_Handler(void)
 {
-  /* USER CODE BEGIN BusFault_IRQn 0 */
-
-  /* USER CODE END BusFault_IRQn 0 */
   while (1)
   {
-    /* USER CODE BEGIN W1_BusFault_IRQn 0 */
-    /* USER CODE END W1_BusFault_IRQn 0 */
   }
 }
 
@@ -108,13 +97,8 @@ void BusFault_Handler(void)
   */
 void UsageFault_Handler(void)
 {
-  /* USER CODE BEGIN UsageFault_IRQn 0 */
-
-  /* USER CODE END UsageFault_IRQn 0 */
   while (1)
   {
-    /* USER CODE BEGIN W1_UsageFault_IRQn 0 */
-    /* USER CODE END W1_UsageFault_IRQn 0 */
   }
 }
 
@@ -123,12 +107,6 @@ void UsageFault_Handler(void)
   */
 void SVC_Handler(void)
 {
-  /* USER CODE BEGIN SVCall_IRQn 0 */
-
-  /* USER CODE END SVCall_IRQn 0 */
-  /* USER CODE BEGIN SVCall_IRQn 1 */
-
-  /* USER CODE END SVCall_IRQn 1 */
 }
 
 /**
@@ -136,12 +114,6 @@ void SVC_Handler(void)
   */
 void DebugMon_Handler(void)
 {
-  /* USER CODE BEGIN DebugMonitor_IRQn 0 */
-
-  /* USER CODE END DebugMonitor_IRQn 0 */
-  /* USER CODE BEGIN DebugMonitor_IRQn 1 */
-
-  /* USER CODE END DebugMonitor_IRQn 1 */
 }
 
 /**
@@ -149,12 +121,6 @@ void DebugMon_Handler(void)
   */
 void PendSV_Handler(void)
 {
-  /* USER CODE BEGIN PendSV_IRQn 0 */
-
-  /* USER CODE END PendSV_IRQn 0 */
-  /* USER CODE BEGIN PendSV_IRQn 1 */
-
-  /* USER CODE END PendSV_IRQn 1 */
 }
 
 /**
@@ -162,13 +128,7 @@ void PendSV_Handler(void)
   */
 void SysTick_Handler(void)
 {
-  /* USER CODE BEGIN SysTick_IRQn 0 */
-
-  /* USER CODE END SysTick_IRQn 0 */
   HAL_IncTick();
-  /* USER CODE BEGIN SysTick_IRQn 1 */
-
-  /* USER CODE END SysTick_IRQn 1 */
 }
 
 /******************************************************************************/
@@ -183,34 +143,42 @@ void SysTick_Handler(void)
   */
 void TIM2_IRQHandler(void)
 {
-  /* USER CODE BEGIN TIM2_IRQn 0 */
-  // Sử dụng trực tiếp giá trị ADC thô (b�? qua bộ l�?c trung bình trượt)
+  // Use raw ADC value directly
   uint16_t raw_value = (uint16_t)ADC_value;
 
-  // Phát hiện QRS
-  uint8_t is_qrs = QRSDetector_Process(&qrs_detector, raw_value);
+  // Apply bandpass filter to get filtered signal
+  int32_t bandpass = BandpassFilter_Apply(&bandpass_filter, raw_value);
 
-  // Lưu c�? QRS vào mảng
-  if (qrs_flag_index < 64) {
-    qrs_flags[qrs_flag_index] = is_qrs;
-    qrs_flag_index++;
+  // Store filtered value for the first 10 seconds
+  if (first_10s_count < 2000) {
+    first_10s_filtered[first_10s_count] = bandpass;
+    first_10s_count++;
+    if (first_10s_count == 2000) {
+      // Detect QRS on the first 10 seconds of filtered data
+      QRSDetector_Detect(&qrs_detector, first_10s_filtered, first_10s_qrs_flags);
+      first_10s_ready = 1;
+    }
   }
 
-  // Ghi giá trị ADC thô vào Circular Buffer (giá trị 16-bit, chia thành 2 byte)
-  uint8_t high_byte = (raw_value >> 8) & 0xFF; // Byte cao
-  uint8_t low_byte = raw_value & 0xFF;         // Byte thấp
-  cb_write(&adc_buffer, &high_byte, 1);
-  cb_write(&adc_buffer, &low_byte, 1);
+  // Store raw and filtered values into Circular Buffer
+  // Each sample: 2 bytes for raw_value, 2 bytes for bandpass
+  uint8_t raw_high_byte = (raw_value >> 8) & 0xFF;
+  uint8_t raw_low_byte = raw_value & 0xFF;
+  uint8_t bp_high_byte = (bandpass >> 8) & 0xFF;
+  uint8_t bp_low_byte = bandpass & 0xFF;
 
-  // Kiểm tra số lượng dữ liệu trong bộ đệm
-  if (cb_data_count(&adc_buffer) >= 128) // 128 byte = 64 mẫu (mỗi mẫu 2 byte)
+  cb_write(&adc_buffer, &raw_high_byte, 1);
+  cb_write(&adc_buffer, &raw_low_byte, 1);
+  cb_write(&adc_buffer, &bp_high_byte, 1);
+  cb_write(&adc_buffer, &bp_low_byte, 1);
+
+  // Check the amount of data in the buffer
+  if (cb_data_count(&adc_buffer) >= 256) // 256 bytes = 64 samples (each sample 4 bytes: 2 bytes raw + 2 bytes bandpass)
   {
-    send_flag = 1; // �?ặt c�? để gửi dữ liệu trong main
+    send_flag = 1; // Set flag to send data in main
   }
-  /* USER CODE END TIM2_IRQn 0 */
+
   HAL_TIM_IRQHandler(&htim2);
-  /* USER CODE BEGIN TIM2_IRQn 1 */
-  /* USER CODE END TIM2_IRQn 1 */
 }
 
 /**
@@ -218,13 +186,7 @@ void TIM2_IRQHandler(void)
   */
 void DMA2_Stream0_IRQHandler(void)
 {
-  /* USER CODE BEGIN DMA2_Stream0_IRQn 0 */
-
-  /* USER CODE END DMA2_Stream0_IRQn 0 */
   HAL_DMA_IRQHandler(&hdma_adc1);
-  /* USER CODE BEGIN DMA2_Stream0_IRQn 1 */
-
-  /* USER CODE END DMA2_Stream0_IRQn 1 */
 }
 
 /* USER CODE BEGIN 1 */
