@@ -2,7 +2,7 @@
  * @file       main.c
  * @copyright  Copyright (C) 2025 HCMUS. All rights reserved.
  * @license    This project is released under the VB's License.
- * @version    1.0.5
+ * @version    1.0.6
  * @date       2025-05-06
  * @author     Binh Nguyen
  *
@@ -25,8 +25,7 @@
 
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
-MovingAverageFilter adc_filter;
-BandpassFilter bandpass_filter;
+BandpassFilter bandpass_filter;  // Added bandpass filter
 cbuffer_t adc_buffer;
 uint8_t adc_buffer_data[512];
 QRSDetector qrs_detector;
@@ -110,7 +109,6 @@ int main(void)
   MX_USART2_UART_Init();
   MX_TIM2_Init();
   /* USER CODE BEGIN 2 */
-  MovingAverageFilter_Init(&adc_filter);
   BandpassFilter_Init(&bandpass_filter);
   cb_init(&adc_buffer, adc_buffer_data, sizeof(adc_buffer_data));
   QRSDetector_Init(&qrs_detector);
