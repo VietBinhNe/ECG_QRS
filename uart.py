@@ -1,7 +1,7 @@
 import sys
 import serial
 import numpy as np
-from PyQt5.QtWidgets import QApplication, QMainWindow, QVBoxLayout, QWidget, QPushButton, QHBoxLayout
+from PyQt5.QtWidgets import QApplication, QMainWindow, QVBoxLayout, QWidget, QPushButton, QHBoxLayout, QLabel
 from PyQt5.QtCore import QTimer
 import pyqtgraph as pg
 
@@ -89,6 +89,18 @@ class ECGDisplay(QMainWindow):
         self.qrs_plot3 = self.plot_widget3.plot(pen=None, symbol='o', symbolPen='r', symbolBrush='r', symbolSize=10)  # QRS points
         self.layout.addWidget(self.plot_widget3)
 
+        # Heart rate and state display
+        self.hr_layout = QHBoxLayout()
+        self.hr_label = QLabel("Nhịp tim: N/A bpm")
+        self.hr_label.setStyleSheet("color: black; font-size: 14px;")
+        self.hr_layout.addWidget(self.hr_label)
+
+        self.hr_state_label = QLabel("Trạng thái nhịp tim: N/A")
+        self.hr_state_label.setStyleSheet("color: black; font-size: 14px;")
+        self.hr_layout.addWidget(self.hr_state_label)
+
+        self.layout.addLayout(self.hr_layout)
+
         # Timer to update data
         self.timer = QTimer()
         self.timer.timeout.connect(self.update_data)
@@ -175,7 +187,36 @@ class ECGDisplay(QMainWindow):
                 if len(self.first_10s_raw) >= self.first_10s_samples:
                     self.first_10s_collected = True
 
+                    # Calculate heart rate and state
+                    self.update_heart_rate()
+
         self.update_plots()
+
+    def update_heart_rate(self):
+        # Calculate number of QRS peaks in first_10s_qrs
+        qrs_count = sum(self.first_10s_qrs)
+        # Calculate heart rate (bpm) = (number of beats / duration in seconds) * 60
+        duration_seconds = self.first_10s_samples / self.sampling_rate  # 10 seconds
+        heart_rate = (qrs_count / duration_seconds) * 60
+        self.hr_label.setText(f"Nhịp tim: {int(heart_rate)} bpm")
+
+        # Determine heart rate state (simplified: check variability of RR intervals)
+        rr_intervals = []
+        last_peak = -1
+        for i in range(len(self.first_10s_qrs)):
+            if self.first_10s_qrs[i] == 1:
+                if last_peak != -1:
+                    rr_intervals.append(i - last_peak)
+                last_peak = i
+        if len(rr_intervals) > 1:
+            rr_mean = np.mean(rr_intervals)
+            rr_std = np.std(rr_intervals)
+            if rr_std / rr_mean < 0.1:  # Low variability -> regular
+                self.hr_state_label.setText("Trạng thái nhịp tim: Đều")
+            else:
+                self.hr_state_label.setText("Trạng thái nhịp tim: Không đều")
+        else:
+            self.hr_state_label.setText("Trạng thái nhịp tim: N/A")
 
     def update_plots(self):
         # Update plot 1: Continuous filtered signal
