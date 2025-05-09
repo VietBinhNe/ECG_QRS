@@ -3,8 +3,6 @@
 </div> -->
 # STM32 Setup 
 
-#### 📖 <font color=red><b>Note that,</b></font> This **README** file is a step-by-step guide to setup. While there are some code snippets here, it is only a shorthand to illustrate what is in the file, so please do not copy the code in this file and put into your file to run, it can cause unwanted errors. </br>
-<font color=yellow>Please strictly follow the instructions.</font>
 
 ### ⚙️ <font color=Gree><b>0.</b></font> <font color=Gree> Overview </font> </br>
 First you need to install and add some necessary libraries for this project.

@@ -3,46 +3,43 @@
 </div> -->
 # Detect QRS peak of ECG wave on STM32 
 
+<p align="center">
+  <img src="./assets/ecg_banner.jpg" alt="Project Banner" width="400" height="auto">
+</p>
 
 ### 📑 <font color=Gree><b>0.</b></font> <font color=Gree> Overview </font> </br>
 
 This project implements a real-time QRS detection system for ECG signals using the STM32F411 microcontroller. The system is based on the Pan-Tompkins algorithm, a well-known method for detecting QRS complexes (specifically the R peaks) in ECG signals. The project captures ECG data via ADC, processes it on the STM32F411, and sends the processed data (ADC values and QRS flags) to a Python script for visualization.
 
-The system operates at a sampling rate of 64 Hz, collecting 6 seconds of data (384 samples) and displaying a static plot of the ECG signal from the 2nd to the 6th second (256 samples). The R peaks are marked with red dots on the plot.
+The system operates at a sampling rate of 200 Hz, collecting 10 seconds of data (2000 samples) and displaying a static plot of the ECG signal. The R peaks are marked with red dots on the plot.
 
-Features:
+
+
+### ⚙️ <font color=Gree><b> 1. </b></font> <font color=Gree> Technologies </font> </br>
+
+- Electrocardiogram (ECG) Sensor: Convenient and fast measurement.
+
+- STM32-based: The project is based on the STM32 microcontroller and its supported platform.
+
+- Communication Protocols: Includes connectivity such as UART.
+
+- Peripheral Libraries: HAL-based firmware for this project.
+
+- Graphic UI: Build GUI applications by using PyQt5.
+
+### 💽 <font color=Gree><b> 2. </b></font> <font color=Gree> Main Features </font> </br>
+
 - Real-time QRS detection using the Pan-Tompkins algorithm.
 
-- ECG signal acquisition at 64 Hz using the STM32F411's ADC.
+- ECG signal acquisition at 200 Hz using the STM32F411's ADC.
 
 - Signal preprocessing with bandpass filtering, derivative, squaring, and moving-window integration.
 
-- Adaptive thresholding to detect R peaks.
+- Implemnt circular buffer library to read ADC data effencialy.
 
-- Data transmission via UART to a Python script for visualization.
+- Data transmission via UART to a Python GUI for visualization.
 
-- Static visualization of the ECG signal and R peaks from the 2nd to the 6th second.
-
-### ⚙️ <font color=Gree><b> 1. </b></font> <font color=Gree> Hardware Requirements </font> </br>
-
-- STM32F411 Microcontroller
-
-- ECG Sensor: AD8232 
-
-- USB-to-Serial Adapter: For UART communication between STM32 and PC.
-
-- PC with Python Installed: For running the visualization script.
-
-### 💽 <font color=Gree><b> 2. </b></font> <font color=Gree> Software Requirements </font> </br>
-
-- STM32CubeIDE: For compiling and uploading the firmware to the STM32F411.
-
-- Python 3.x: For running the visualization script.
-
-- Required Python Libraries:
-  - pyserial: For UART communication.
-  - numpy: For numerical operations.
-  - matplotlib: For plotting the ECG signal.
+- Static visualization of the ECG signal and R peaks in 10 second.
 
 ### 📖 <font color=Gree><b> 3. </b></font> <font color=Gree> References </font> </br>
 
