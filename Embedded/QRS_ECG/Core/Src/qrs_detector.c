@@ -2,244 +2,179 @@
  * @file       qrs_detector.c
  * @copyright  Copyright (C) 2025 HCMUS. All rights reserved.
  * @license    This project is released under the VB's License.
- * @version    1.0.8
- * @date       2025-05-06
+ * @version    1.1.0
+ * @date       2025-05-11
  * @author     Binh Nguyen
- * @brief      Implementation of QRS detection using Pan-Tompkins algorithm on STM32.
- * @note       Detects QRS peaks on a 10-second filtered ECG signal at 200 Hz.
+ *
+ * @brief      Implementation of QRS detection algorithm for STM32 using low static threshold with smart post-processing.
+ *
+ * @note       This file implements a low static threshold algorithm with smart post-processing for QRS complexes.
+ * @example    main.c
+ *             Main application using the QRS detector to identify QRS complexes.
  */
 
+/* Includes ----------------------------------------------------------- */
 #include "qrs_detector.h"
 #include "mylib.h"
+#include <stdio.h>
+#include <string.h>
 
 /* Private defines ---------------------------------------------------- */
-#define QRS_SIGNAL_FACTOR      0.4    /*!< Factor for signal level in threshold calculation (adjusted for better sensitivity) */
-#define QRS_NOISE_FACTOR       0.6    /*!< Factor for noise level in threshold calculation (adjusted for better sensitivity) */
-#define QRS_RR_LIMIT_LOW       0.92   /*!< Lower limit for RR interval (92% of average) */
-#define QRS_RR_LIMIT_HIGH      1.16   /*!< Upper limit for RR interval (116% of average) */
-#define QRS_SEARCHBACK_FACTOR  1.3    /*!< Factor for search-back window (130% of average RR, adjusted for better accuracy) */
+/* None */
+
+/* Private enumerate/structure ---------------------------------------- */
+/* None */
+
+/* Private macros ----------------------------------------------------- */
+/* None */
+
+/* Public variables --------------------------------------------------- */
+/* None */
+
+/* Private variables -------------------------------------------------- */
+/* None */
 
 /* Private function prototypes ---------------------------------------- */
-static int32_t derivative(QRSDetector* detector, int32_t filtered);
-static int32_t squaring(int32_t deriv);
-static int32_t moving_window_integration(QRSDetector* detector, int32_t squared);
-static void update_thresholds(QRSDetector* detector, int32_t peak, uint8_t is_qrs);
-static void update_rr_intervals(QRSDetector* detector, uint32_t rr);
-static int32_t calculate_slope(QRSDetector* detector);
+/* None */
 
 /* Function definitions ----------------------------------------------- */
 void QRSDetector_Init(QRSDetector* detector)
 {
-    for (uint8_t i = 0; i < 5; i++) {
-        detector->deriv_buffer[i] = 0;
-    }
-    for (uint8_t i = 0; i < QRS_WINDOW_SIZE; i++) {
-        detector->integ_buffer[i] = 0;
-    }
-
-    detector->integ_index = 0;
-    detector->signal_level = 0;
-    detector->noise_level = 0;
-    detector->threshold_i1 = 0;
-    detector->threshold_i2 = 0;
-    detector->last_peak_time = 0;
-    detector->sample_count = 0;
-    detector->learning_phase = 1;
-
-    for (uint8_t i = 0; i < 8; i++) {
-        detector->rr_intervals[i] = 0;
-    }
-    detector->rr_index = 0;
-    detector->rr_average1 = 0;
-    detector->rr_average2 = 0;
-    detector->rr_count = 0;
-
-    detector->last_qrs_slope = 0;
+    detector->peak_count = 0;
 }
 
-void QRSDetector_Detect(QRSDetector* detector, const int32_t* filtered_data, uint8_t* qrs_flags)
+void QRSDetector_Detect(QRSDetector* detector, int32_t* signal, uint8_t* qrs_flags)
 {
+    // Initialize output array
+    for (uint16_t i = 0; i < 2000; i++) {
+        qrs_flags[i] = 0;
+    }
+
     // Reset detector state
     QRSDetector_Init(detector);
 
-    uint8_t learning_phase_2 = 0;  // Flag for second learning phase (RR interval initialization)
-    uint8_t detected_peaks = 0;    // Counter for detected QRS peaks in learning phase 2
+    // Step 1: Calculate the mean of the signal to remove DC component
+    int64_t signal_sum = 0;
+    for (uint16_t i = 0; i < 2000; i++) {
+        signal_sum += signal[i];
+    }
+    int32_t signal_mean = (int32_t)(signal_sum / 2000);
 
-    // Process each sample in the 10-second filtered data
-    for (uint32_t i = 0; i < QRS_10S_SAMPLES; i++) {
-        int32_t filtered = filtered_data[i];
+    // Debug: Send signal mean
+    char debug_msg[50];
+    sprintf(debug_msg, "DEBUG:MEAN:%ld\n", signal_mean);
+    HAL_UART_Transmit(&huart2, (uint8_t*)debug_msg, strlen(debug_msg), 200);
 
-        // Step 1: Compute derivative
-        int32_t deriv = derivative(detector, filtered);
+    // Step 2: Detect potential QRS peaks using static threshold
+    uint16_t potential_peaks[2000];
+    int32_t potential_values[2000];
+    uint16_t potential_count = 0;
 
-        // Step 2: Square the signal
-        int32_t squared = squaring(deriv);
+    for (uint16_t i = 0; i < 2000; i++) {
+        // Remove DC component
+        int32_t adjusted_signal = signal[i] - signal_mean;
 
-        // Step 3: Apply moving window integration
-        int32_t integrated = moving_window_integration(detector, squared);
-
-        // Step 4: Learning phase (first 4 seconds)
-        if (detector->learning_phase) {
-            detector->sample_count++;
-            if (detector->sample_count < QRS_LEARNING_SAMPLES) {
-                if (integrated > detector->signal_level) detector->signal_level = integrated;
-                detector->noise_level += integrated;
-                qrs_flags[i] = 0;
-                continue;
-            } else {
-                detector->noise_level /= QRS_LEARNING_SAMPLES;
-                // Do not divide signal_level by 2 to avoid reducing threshold too much
-                detector->threshold_i1 = detector->noise_level + QRS_SIGNAL_FACTOR * (detector->signal_level - detector->noise_level);
-                detector->threshold_i2 = QRS_NOISE_FACTOR * detector->threshold_i1;
-                detector->learning_phase = 0;
-                detector->sample_count = 0;
-            }
+        // Debug: Send signal every 100 samples
+        if (i % 100 == 0) {
+            sprintf(debug_msg, "DEBUG:SAMPLE:%u:%ld\n", i, adjusted_signal);
+            HAL_UART_Transmit(&huart2, (uint8_t*)debug_msg, strlen(debug_msg), 200);
         }
 
-        // Step 5: Peak detection
-        uint8_t is_qrs = 0;
-        if (integrated > detector->threshold_i1) {
-            uint32_t time_since_last = detector->sample_count - detector->last_peak_time;
-
-            // Check refractory period
-            if (time_since_last < QRS_REFRACTORY_PERIOD) {
-                update_thresholds(detector, integrated, 0);
-                qrs_flags[i] = 0;
-            } else {
-                // T-wave discrimination
-                if (time_since_last < QRS_TWAVE_PERIOD && detector->last_qrs_slope > 0) {
-                    int32_t current_slope = calculate_slope(detector);
-                    if (current_slope < detector->last_qrs_slope / 2) {
-                        update_thresholds(detector, integrated, 0);
-                        qrs_flags[i] = 0;
-                    } else {
-                        // Valid QRS peak
-                        is_qrs = 1;
-                        detector->last_qrs_slope = current_slope;
-                        update_thresholds(detector, integrated, 1);
-                        uint32_t rr = time_since_last;
-                        update_rr_intervals(detector, rr);
-                        detector->last_peak_time = detector->sample_count;
-                        qrs_flags[i] = 1;
-
-                        // Second learning phase: Initialize RR intervals with first 2 peaks
-                        if (!learning_phase_2) {
-                            detected_peaks++;
-                            if (detected_peaks == 2) {
-                                learning_phase_2 = 1;  // Second learning phase complete
-                            }
-                        }
-                    }
-                } else {
-                    // Valid QRS peak
-                    is_qrs = 1;
-                    detector->last_qrs_slope = calculate_slope(detector);
-                    update_thresholds(detector, integrated, 1);
-                    uint32_t rr = time_since_last;
-                    update_rr_intervals(detector, rr);
-                    detector->last_peak_time = detector->sample_count;
-                    qrs_flags[i] = 1;
-
-                    // Second learning phase: Initialize RR intervals with first 2 peaks
-                    if (!learning_phase_2) {
-                        detected_peaks++;
-                        if (detected_peaks == 2) {
-                            learning_phase_2 = 1;  // Second learning phase complete
-                        }
-                    }
+        // Step 3: Check if signal exceeds static threshold
+        if (adjusted_signal > QRS_STATIC_THRESHOLD && adjusted_signal > 0 && potential_count < QRS_MAX_PEAKS) {
+            // Check if this is a local maximum
+            int32_t is_peak = 1;
+            for (uint16_t j = 1; j <= QRS_PEAK_WINDOW; j++) {
+                if (i >= j && adjusted_signal < (signal[i - j] - signal_mean)) {
+                    is_peak = 0;
+                    break;
+                }
+                if (i + j < 2000 && adjusted_signal < (signal[i + j] - signal_mean)) {
+                    is_peak = 0;
+                    break;
                 }
             }
-        } else if (detector->rr_average1 > 0 &&
-                   (detector->sample_count - detector->last_peak_time) > (uint32_t)(QRS_SEARCHBACK_FACTOR * detector->rr_average1)) {
-            if (integrated > detector->threshold_i2) {
-                is_qrs = 1;
-                detector->last_qrs_slope = calculate_slope(detector);
-                update_thresholds(detector, integrated, 1);
-                uint32_t rr = detector->sample_count - detector->last_peak_time;
-                update_rr_intervals(detector, rr);
-                detector->last_peak_time = detector->sample_count;
-                qrs_flags[i] = 1;
-            } else {
-                qrs_flags[i] = 0;
+
+            // Step 4: Mark potential QRS peak if it is a local maximum
+            if (is_peak) {
+                potential_peaks[potential_count] = i;
+                potential_values[potential_count] = adjusted_signal;
+                potential_count++;
+
+                // Debug: Send potential peak
+                sprintf(debug_msg, "DEBUG:POTENTIAL_PEAK:%u:%ld\n", i, adjusted_signal);
+                HAL_UART_Transmit(&huart2, (uint8_t*)debug_msg, strlen(debug_msg), 200);
+
+                // Skip the window to avoid multiple detections
+                i += QRS_PEAK_WINDOW;
             }
-        } else {
-            qrs_flags[i] = 0;
-        }
-
-        detector->sample_count++;
-    }
-}
-
-/* Private definitions ----------------------------------------------- */
-static int32_t derivative(QRSDetector* detector, int32_t filtered)
-{
-    for (uint8_t i = 4; i > 0; i--) {
-        detector->deriv_buffer[i] = detector->deriv_buffer[i - 1];
-    }
-    detector->deriv_buffer[0] = filtered;
-
-    // Five-point derivative (based on Pan-Tompkins)
-    int32_t deriv = (1 / 8) * (-detector->deriv_buffer[4] - 2 * detector->deriv_buffer[3] + 2 * detector->deriv_buffer[1] + detector->deriv_buffer[0]);
-    return deriv;
-}
-
-static int32_t squaring(int32_t deriv)
-{
-    return deriv * deriv;
-}
-
-static int32_t moving_window_integration(QRSDetector* detector, int32_t squared)
-{
-    detector->integ_buffer[detector->integ_index] = squared;
-    detector->integ_index = (detector->integ_index + 1) % QRS_WINDOW_SIZE;
-
-    int32_t sum = 0;
-    for (uint8_t i = 0; i < QRS_WINDOW_SIZE; i++) {
-        sum += detector->integ_buffer[i];
-    }
-    return sum / QRS_WINDOW_SIZE;
-}
-
-static void update_thresholds(QRSDetector* detector, int32_t peak, uint8_t is_qrs)
-{
-    if (is_qrs) {
-        detector->signal_level = 0.125 * peak + 0.875 * detector->signal_level;
-    } else {
-        detector->noise_level = 0.125 * peak + 0.875 * detector->noise_level;
-    }
-
-    detector->threshold_i1 = detector->noise_level + QRS_SIGNAL_FACTOR * (detector->signal_level - detector->noise_level);
-    detector->threshold_i2 = QRS_NOISE_FACTOR * detector->threshold_i1;
-}
-
-static void update_rr_intervals(QRSDetector* detector, uint32_t rr)
-{
-    detector->rr_intervals[detector->rr_index] = rr;
-    detector->rr_index = (detector->rr_index + 1) % 8;
-    if (detector->rr_count < 8) {
-        detector->rr_count++;
-    }
-
-    uint32_t sum1 = 0;
-    for (uint8_t i = 0; i < detector->rr_count; i++) {
-        sum1 += detector->rr_intervals[i];
-    }
-    detector->rr_average1 = sum1 / detector->rr_count;
-
-    uint32_t sum2 = 0;
-    uint8_t count2 = 0;
-    for (uint8_t i = 0; i < detector->rr_count; i++) {
-        if (detector->rr_intervals[i] >= (uint32_t)(QRS_RR_LIMIT_LOW * detector->rr_average1) &&
-            detector->rr_intervals[i] <= (uint32_t)(QRS_RR_LIMIT_HIGH * detector->rr_average1)) {
-            sum2 += detector->rr_intervals[i];
-            count2++;
         }
     }
-    detector->rr_average2 = (count2 > 0) ? (sum2 / count2) : detector->rr_average1;
+
+    // Step 5: Estimate heart rate to determine minimum distance
+    uint16_t min_distance = QRS_MIN_DISTANCE; // Default minimum distance (~200ms at 200 Hz)
+    if (potential_count > 1) {
+        // Calculate average interval between potential peaks
+        int32_t total_interval = potential_peaks[potential_count - 1] - potential_peaks[0];
+        int32_t avg_interval = total_interval / (potential_count - 1);
+        // Use 50% of the average interval as the minimum distance
+        min_distance = (uint16_t)(avg_interval / 2);
+        if (min_distance < 30) min_distance = 30; // Ensure at least 150ms
+        if (min_distance > 60) min_distance = 60; // Cap at 300ms
+    }
+
+    // Debug: Send estimated minimum distance
+    sprintf(debug_msg, "DEBUG:MIN_DISTANCE:%u\n", min_distance);
+    HAL_UART_Transmit(&huart2, (uint8_t*)debug_msg, strlen(debug_msg), 200);
+
+    // Step 6: Post-process to filter peaks
+    for (uint16_t i = 0; i < potential_count; i++) {
+        uint16_t start_idx = potential_peaks[i];
+        uint16_t end_idx = start_idx + min_distance;
+        if (end_idx >= 2000) end_idx = 1999;
+
+        int32_t max_value = potential_values[i];
+        uint16_t max_idx = start_idx;
+
+        // Find the peak with highest amplitude within the window
+        for (uint16_t j = i + 1; j < potential_count; j++) {
+            if (potential_peaks[j] > end_idx) break;
+
+            if (potential_values[j] > max_value) {
+                max_value = potential_values[j];
+                max_idx = potential_peaks[j];
+            }
+            i = j; // Skip to the last peak in this window
+        }
+
+        // Refine the peak position using the original signal
+        uint16_t refine_start = (max_idx < QRS_PEAK_REFINE_WINDOW) ? 0 : max_idx - QRS_PEAK_REFINE_WINDOW;
+        uint16_t refine_end = (max_idx + QRS_PEAK_REFINE_WINDOW >= 2000) ? 1999 : max_idx + QRS_PEAK_REFINE_WINDOW;
+        int32_t refined_max_value = signal[max_idx] - signal_mean;
+        uint16_t refined_max_idx = max_idx;
+
+        for (uint16_t j = refine_start; j <= refine_end; j++) {
+            int32_t value = signal[j] - signal_mean;
+            if (value > refined_max_value) {
+                refined_max_value = value;
+                refined_max_idx = j;
+            }
+        }
+
+        // Mark the QRS peak at the refined position if it meets the amplitude criterion
+        if (refined_max_value > QRS_MIN_AMPLITUDE && detector->peak_count < QRS_MAX_PEAKS) {
+            qrs_flags[refined_max_idx] = 1;
+            detector->peak_count++;
+
+            // Debug: Send final peak
+            sprintf(debug_msg, "DEBUG:PEAK:%u:%ld\n", refined_max_idx, refined_max_value);
+            HAL_UART_Transmit(&huart2, (uint8_t*)debug_msg, strlen(debug_msg), 200);
+        }
+    }
+
+    // Debug: Send total number of detected peaks
+    sprintf(debug_msg, "DEBUG:TOTAL:%u\n", detector->peak_count);
+    HAL_UART_Transmit(&huart2, (uint8_t*)debug_msg, strlen(debug_msg), 200);
 }
 
-static int32_t calculate_slope(QRSDetector* detector)
-{
-    int32_t slope = detector->deriv_buffer[0] - detector->deriv_buffer[2];
-    return (slope > 0) ? slope : -slope;
-}
+/* End of file -------------------------------------------------------- */
