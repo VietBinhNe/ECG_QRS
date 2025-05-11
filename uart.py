@@ -1,7 +1,7 @@
 import sys
 import serial
 import numpy as np
-from PyQt5.QtWidgets import QApplication, QMainWindow, QVBoxLayout, QWidget, QPushButton, QHBoxLayout, QLabel
+from PyQt5.QtWidgets import QApplication, QMainWindow, QVBoxLayout, QWidget, QPushButton, QHBoxLayout, QLabel, QTextEdit, QScrollArea
 from PyQt5.QtCore import QTimer
 import pyqtgraph as pg
 
@@ -30,6 +30,9 @@ class ECGDisplay(QMainWindow):
         self.is_running = True  # Running/paused state
         self.first_10s_collected = False  # Flag to check if first 10 seconds are collected
         self.qrs_display_enabled = False  # Flag to control QRS display on plot 3
+        self.frame_count = 0  # Counter to track frames for synchronization
+        self.wait_for_qrs = False  # Flag to wait for QRS flags after first 10 seconds
+        self.qrs_buffer = []  # Buffer to store QRS flags after first 10 seconds
 
         # Create the interface
         self.central_widget = QWidget()
@@ -89,6 +92,20 @@ class ECGDisplay(QMainWindow):
         self.qrs_plot3 = self.plot_widget3.plot(pen=None, symbol='o', symbolPen='r', symbolBrush='r', symbolSize=10)  # QRS points
         self.layout.addWidget(self.plot_widget3)
 
+        # Debug text area
+        self.debug_layout = QHBoxLayout()
+        self.debug_label = QLabel("Thông tin gỡ lỗi:")
+        self.debug_label.setStyleSheet("color: black; font-size: 14px;")
+        self.debug_layout.addWidget(self.debug_label)
+
+        self.debug_text = QTextEdit()
+        self.debug_text.setReadOnly(True)
+        self.debug_text.setFixedHeight(100)
+        self.debug_text.setStyleSheet("color: black; font-size: 12px; background-color: lightgray;")
+        self.debug_layout.addWidget(self.debug_text)
+
+        self.layout.addLayout(self.debug_layout)
+
         # Heart rate and state display
         self.hr_layout = QHBoxLayout()
         self.hr_label = QLabel("Nhịp tim: N/A bpm")
@@ -121,6 +138,9 @@ class ECGDisplay(QMainWindow):
         # Enable QRS display on plot 3
         self.qrs_display_enabled = True
         self.update_plots()
+        # Debug: Print first_10s_qrs to check QRS flags
+        qrs_indices = np.where(np.array(self.first_10s_qrs) == 1)[0]
+        self.debug_text.append(f"DEBUG: QRS indices in first_10s_qrs: {qrs_indices}")
 
     def update_data(self):
         if not self.is_running:
@@ -130,9 +150,32 @@ class ECGDisplay(QMainWindow):
         while self.serial_port.in_waiting > 0:
             self.buffer.extend(self.serial_port.read(self.serial_port.in_waiting))
 
-            # Find data frame: Start byte (0xAA) to End byte (0xBB)
+            # Process the buffer
             while len(self.buffer) > 0:
-                # Find start byte
+                # Check for debug messages (starting with "DEBUG:")
+                if len(self.buffer) >= 6 and self.buffer[:6] == b"DEBUG:":
+                    # Find the end of the debug message (newline)
+                    newline_idx = self.buffer.find(b"\n")
+                    if newline_idx == -1:
+                        break  # Wait for more data
+
+                    # Extract and process the debug message
+                    debug_msg = self.buffer[:newline_idx].decode('utf-8', errors='ignore')
+                    self.buffer = self.buffer[newline_idx + 1:]
+
+                    # Display the debug message
+                    self.debug_text.append(debug_msg)
+                    # Auto-scroll to the bottom
+                    self.debug_text.verticalScrollBar().setValue(self.debug_text.verticalScrollBar().maximum())
+
+                    # Check if this message indicates QRS processing is complete
+                    if debug_msg.startswith("DEBUG:TOTAL:"):
+                        self.wait_for_qrs = True  # Start collecting QRS flags
+                        self.qrs_buffer = []  # Reset QRS buffer
+                        self.debug_text.append("DEBUG: Starting to collect QRS flags after processing")
+                    continue
+
+                # Check for data frame: Start byte (0xAA) to End byte (0xBB)
                 if self.buffer[0] != 0xAA:
                     self.buffer.pop(0)
                     continue
@@ -180,15 +223,36 @@ class ECGDisplay(QMainWindow):
                     self.qrs_flags = self.qrs_flags[-self.display_samples:]
 
                 # Store first 10 seconds for plots 2 and 3
-                if not self.first_10s_collected and len(self.first_10s_raw) < self.first_10s_samples:
+                if not self.first_10s_collected:
                     self.first_10s_raw.extend(raw_values)
                     self.first_10s_filtered.extend(bandpass_values)
-                    self.first_10s_qrs.extend(qrs_flags)
-                if len(self.first_10s_raw) >= self.first_10s_samples:
-                    self.first_10s_collected = True
+                    # Temporarily store zeros for QRS flags until we receive the correct ones
+                    self.first_10s_qrs.extend([0] * len(qrs_flags))
+                    # Debug: Print a sample of qrs_flags to verify
+                    if len(self.first_10s_raw) % 200 == 0:  # Every 200 samples
+                        self.debug_text.append(f"DEBUG: Sample QRS flags at sample {len(self.first_10s_raw)}: {qrs_flags[:10]}")
+                    if len(self.first_10s_raw) >= self.first_10s_samples:
+                        self.first_10s_collected = True
+                        # Trim to exactly 2000 samples to ensure synchronization
+                        self.first_10s_raw = self.first_10s_raw[:self.first_10s_samples]
+                        self.first_10s_filtered = self.first_10s_filtered[:self.first_10s_samples]
+                        self.first_10s_qrs = [0] * self.first_10s_samples  # Reset QRS flags
+                        self.debug_text.append(f"DEBUG: First 10 seconds collected. Length of first_10s_qrs: {len(self.first_10s_qrs)}")
+                        self.wait_for_qrs = True  # Start waiting for QRS flags
+                        self.qrs_buffer = []  # Reset QRS buffer
 
-                    # Calculate heart rate and state
-                    self.update_heart_rate()
+                # Collect QRS flags after first 10 seconds
+                if self.wait_for_qrs:
+                    self.qrs_buffer.extend(qrs_flags)
+                    # Check if we have collected enough QRS flags (2000 samples)
+                    if len(self.qrs_buffer) >= self.first_10s_samples:
+                        self.first_10s_qrs = self.qrs_buffer[:self.first_10s_samples]
+                        self.wait_for_qrs = False  # Stop collecting QRS flags
+                        self.debug_text.append(f"DEBUG: Collected QRS flags. Length of first_10s_qrs: {len(self.first_10s_qrs)}")
+                        # Debug: Print initial QRS indices
+                        qrs_indices = np.where(np.array(self.first_10s_qrs) == 1)[0]
+                        self.debug_text.append(f"DEBUG: QRS indices after collecting flags: {qrs_indices}")
+                        self.update_heart_rate()
 
         self.update_plots()
 
