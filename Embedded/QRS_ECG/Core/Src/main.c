@@ -88,7 +88,7 @@ int main(void)
 
   /* MCU Configuration--------------------------------------------------------*/
 
-  /* Reset of all peripherals, Initializes the Flash interface and the Systick. */
+  /* Reset * Reset of all peripherals, Initializes the Flash interface and the Systick. */
   HAL_Init();
 
   /* USER CODE BEGIN Init */
@@ -162,11 +162,16 @@ int main(void)
 					if (first_10s_ready && qrs_flag_index < 2000)
 					{
 						sendBuffer[idx++] = first_10s_qrs_flags[qrs_flag_index];
+						qrs_flag_index++; // Tăng chỉ số để gửi cờ tiếp theo
 					}
 					else
 					{
 						sendBuffer[idx++] = 0;
 					}
+				}
+				if (qrs_flag_index >= 2000)
+				{
+					qrs_flag_index = 0; // Đặt lại để lặp lại
 				}
 
 				sendBuffer[idx++] = END_BYTE; // End byte
@@ -176,7 +181,7 @@ int main(void)
 
 				// Reset QRS flags
 				memset(qrs_flags, 0, sizeof(qrs_flags));
-				qrs_flag_index = 0;
+				// Không đặt lại qrs_flag_index ở đây vì đã xử lý ở trên
 			}
 			else
 			{
