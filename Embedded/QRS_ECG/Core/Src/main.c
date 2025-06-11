@@ -25,16 +25,16 @@
 
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
-BandpassFilter bandpass_filter;  // Added bandpass filter
+BandpassFilter bandpass_filter;
 cbuffer_t adc_buffer;
 uint8_t adc_buffer_data[512];
 QRSDetector qrs_detector;
 uint8_t qrs_flags[64];
 uint8_t qrs_flag_index;
-int32_t first_10s_filtered[2000];  // Buffer to store first 10 seconds of filtered data (2000 samples at 200 Hz)
-uint8_t first_10s_qrs_flags[2000]; // Buffer to store QRS flags for first 10 seconds
-uint32_t first_10s_count = 0;      // Counter for first 10 seconds of data
-uint8_t first_10s_ready = 0;       // Flag to indicate if first 10 seconds are ready
+int32_t first_10s_filtered[2000];
+uint8_t first_10s_qrs_flags[2000];
+uint32_t first_10s_count = 0;
+uint8_t first_10s_ready = 0;
 /* USER CODE END PTD */
 
 /* Private define ------------------------------------------------------------*/
@@ -57,7 +57,7 @@ TIM_HandleTypeDef htim2;
 UART_HandleTypeDef huart2;
 
 /* USER CODE BEGIN PV */
-uint8_t sendBuffer[300]; // Buffer for UART transmission: Start byte + 64 raw (2 bytes each) + 64 bandpass (2 bytes each) + 64 QRS flags (1 byte each) + End byte
+uint8_t sendBuffer[FRAME_SIZE];
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -88,7 +88,7 @@ int main(void)
 
   /* MCU Configuration--------------------------------------------------------*/
 
-  /* Reset * Reset of all peripherals, Initializes the Flash interface and the Systick. */
+  /* Reset of all peripherals, Initializes the Flash interface and the Systick. */
   HAL_Init();
 
   /* USER CODE BEGIN Init */
@@ -132,15 +132,13 @@ int main(void)
 	  if(send_flag == 1)
 	  {
 		  send_flag = 0;
-		  uint8_t temp_buffer[256]; // 64 samples x 4 bytes (2 bytes raw + 2 bytes bandpass)
+		  uint8_t temp_buffer[256];
 		  uint32_t bytes_read = cb_read(&adc_buffer, temp_buffer, 256);
 			if(bytes_read == 256)
 			{
-				// Prepare data to send: Start byte + 64 raw samples (2 bytes each) + 64 bandpass samples (2 bytes each) + 64 QRS flags (1 byte each) + End byte
 				int idx = 0;
-				sendBuffer[idx++] = START_BYTE; // Start byte
+				sendBuffer[idx++] = START_BYTE;
 
-				// Send 64 raw samples (2 bytes each)
 				for (int i = 0; i < 64; i++)
 				{
 					uint16_t raw_value = (temp_buffer[i * 4] << 8) | temp_buffer[i * 4 + 1];
@@ -148,7 +146,6 @@ int main(void)
 					sendBuffer[idx++] = raw_value & 0xFF;
 				}
 
-				// Send 64 bandpass samples (2 bytes each)
 				for (int i = 0; i < 64; i++)
 				{
 					int16_t bp_value = (temp_buffer[i * 4 + 2] << 8) | temp_buffer[i * 4 + 3];
@@ -156,13 +153,18 @@ int main(void)
 					sendBuffer[idx++] = bp_value & 0xFF;
 				}
 
-				// Send 64 QRS flags (1 byte each) - Use first_10s_qrs_flags if available
 				for (int i = 0; i < 64; i++)
 				{
 					if (first_10s_ready && qrs_flag_index < 2000)
 					{
+						if (qrs_flag_index % 256 == 0)
+						{
+							char debug_msg[50];
+							sprintf(debug_msg, "DEBUG:SENDING_QRS:%u:%u\n", qrs_flag_index, first_10s_qrs_flags[qrs_flag_index]);
+							HAL_UART_Transmit(&huart2, (uint8_t*)debug_msg, strlen(debug_msg), 200);
+						}
 						sendBuffer[idx++] = first_10s_qrs_flags[qrs_flag_index];
-						qrs_flag_index++; // Tăng chỉ số để gửi cờ tiếp theo
+						qrs_flag_index++;
 					}
 					else
 					{
@@ -171,17 +173,21 @@ int main(void)
 				}
 				if (qrs_flag_index >= 2000)
 				{
-					qrs_flag_index = 0; // Đặt lại để lặp lại
+					qrs_flag_index = 0;
 				}
 
-				sendBuffer[idx++] = END_BYTE; // End byte
+				uint8_t checksum = 0;
+				for (int i = 1; i < idx; i++)
+				{
+					checksum += sendBuffer[i];
+				}
+				sendBuffer[idx++] = checksum;
 
-				// Send data via UART
+				sendBuffer[idx++] = END_BYTE;
+
 				HAL_UART_Transmit(&huart2, sendBuffer, idx, 200);
 
-				// Reset QRS flags
 				memset(qrs_flags, 0, sizeof(qrs_flags));
-				// Không đặt lại qrs_flag_index ở đây vì đã xử lý ở trên
 			}
 			else
 			{
@@ -315,7 +321,7 @@ static void MX_TIM2_Init(void)
 static void MX_USART2_UART_Init(void)
 {
   huart2.Instance = USART2;
-  huart2.Init.BaudRate = 115200;
+  huart2.Init.BaudRate = 38400;
   huart2.Init.WordLength = UART_WORDLENGTH_8B;
   huart2.Init.StopBits = UART_STOPBITS_1;
   huart2.Init.Parity = UART_PARITY_NONE;
