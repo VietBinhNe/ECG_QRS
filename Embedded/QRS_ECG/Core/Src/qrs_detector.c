@@ -112,15 +112,13 @@ void QRSDetector_Detect(QRSDetector* detector, int32_t* signal, uint8_t* qrs_fla
     }
 
     // Step 5: Estimate heart rate to determine minimum distance
-    uint16_t min_distance = QRS_MIN_DISTANCE; // Default minimum distance (~200ms at 200 Hz)
+    uint16_t min_distance = QRS_MIN_DISTANCE;
     if (potential_count > 1) {
-        // Calculate average interval between potential peaks
         int32_t total_interval = potential_peaks[potential_count - 1] - potential_peaks[0];
         int32_t avg_interval = total_interval / (potential_count - 1);
-        // Use 50% of the average interval as the minimum distance
         min_distance = (uint16_t)(avg_interval / 2);
-        if (min_distance < 30) min_distance = 30; // Ensure at least 150ms
-        if (min_distance > 60) min_distance = 60; // Cap at 300ms
+        if (min_distance < 30) min_distance = 30;
+        if (min_distance > QRS_MIN_DISTANCE) min_distance = QRS_MIN_DISTANCE;
     }
 
     // Debug: Send estimated minimum distance
@@ -136,7 +134,6 @@ void QRSDetector_Detect(QRSDetector* detector, int32_t* signal, uint8_t* qrs_fla
         int32_t max_value = potential_values[i];
         uint16_t max_idx = start_idx;
 
-        // Find the peak with highest amplitude within the window
         for (uint16_t j = i + 1; j < potential_count; j++) {
             if (potential_peaks[j] > end_idx) break;
 
@@ -144,10 +141,9 @@ void QRSDetector_Detect(QRSDetector* detector, int32_t* signal, uint8_t* qrs_fla
                 max_value = potential_values[j];
                 max_idx = potential_peaks[j];
             }
-            i = j; // Skip to the last peak in this window
+            i = j;
         }
 
-        // Refine the peak position using the original signal
         uint16_t refine_start = (max_idx < QRS_PEAK_REFINE_WINDOW) ? 0 : max_idx - QRS_PEAK_REFINE_WINDOW;
         uint16_t refine_end = (max_idx + QRS_PEAK_REFINE_WINDOW >= 2000) ? 1999 : max_idx + QRS_PEAK_REFINE_WINDOW;
         int32_t refined_max_value = signal[max_idx] - signal_mean;
@@ -161,12 +157,10 @@ void QRSDetector_Detect(QRSDetector* detector, int32_t* signal, uint8_t* qrs_fla
             }
         }
 
-        // Mark the QRS peak at the refined position if it meets the amplitude criterion
         if (refined_max_value > QRS_MIN_AMPLITUDE && detector->peak_count < QRS_MAX_PEAKS) {
             qrs_flags[refined_max_idx] = 1;
             detector->peak_count++;
 
-            // Debug: Send final peak
             sprintf(debug_msg, "DEBUG:PEAK:%u:%ld\n", refined_max_idx, refined_max_value);
             HAL_UART_Transmit(&huart2, (uint8_t*)debug_msg, strlen(debug_msg), 200);
         }
@@ -175,6 +169,53 @@ void QRSDetector_Detect(QRSDetector* detector, int32_t* signal, uint8_t* qrs_fla
     // Debug: Send total number of detected peaks
     sprintf(debug_msg, "DEBUG:TOTAL:%u\n", detector->peak_count);
     HAL_UART_Transmit(&huart2, (uint8_t*)debug_msg, strlen(debug_msg), 200);
+
+    // Debug: Send indices of detected QRS peaks
+    sprintf(debug_msg, "DEBUG:QRS_INDICES:");
+    int msg_len = strlen(debug_msg);
+    for (uint16_t i = 0; i < 2000; i++) {
+        if (qrs_flags[i] == 1) {
+            char index_str[10];
+            sprintf(index_str, "%u,", i);
+            int index_len = strlen(index_str);
+            if (msg_len + index_len < sizeof(debug_msg) - 1) {
+                strcat(debug_msg, index_str);
+                msg_len += index_len;
+            } else {
+                HAL_UART_Transmit(&huart2, (uint8_t*)debug_msg, msg_len, 200);
+                sprintf(debug_msg, "DEBUG:QRS_INDICES:%s", index_str);
+                msg_len = strlen(debug_msg);
+            }
+        }
+    }
+    if (msg_len > strlen("DEBUG:QRS_INDICES:")) {
+        debug_msg[msg_len - 1] = '\n';
+        HAL_UART_Transmit(&huart2, (uint8_t*)debug_msg, msg_len, 200);
+    }
+
+    // Debug: Verify first_10s_qrs_flags content
+    sprintf(debug_msg, "DEBUG:QRS_FLAGS_SAMPLE:");
+    msg_len = strlen(debug_msg);
+    for (uint16_t i = 0; i < 2000; i += 100) {
+        char flag_str[10];
+        sprintf(flag_str, "%u:%u,", i, qrs_flags[i]);
+        int flag_len = strlen(flag_str);
+        if (msg_len + flag_len < sizeof(debug_msg) - 1) {
+            strcat(debug_msg, flag_str);
+            msg_len += flag_len;
+        } else {
+            HAL_UART_Transmit(&huart2, (uint8_t*)debug_msg, msg_len, 200);
+            sprintf(debug_msg, "DEBUG:QRS_FLAGS_SAMPLE:%s", flag_str);
+            msg_len = strlen(debug_msg);
+        }
+    }
+    if (msg_len > strlen("DEBUG:QRS_FLAGS_SAMPLE:")) {
+        debug_msg[msg_len - 1] = '\n';
+        HAL_UART_Transmit(&huart2, (uint8_t*)debug_msg, msg_len, 200);
+    }
 }
+
+/* Private definitions ----------------------------------------------- */
+/* None */
 
 /* End of file -------------------------------------------------------- */

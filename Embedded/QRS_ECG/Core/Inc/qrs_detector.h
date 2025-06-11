@@ -21,19 +21,19 @@
 #include <stdint.h>
 
 /* Public defines ----------------------------------------------------- */
-#define QRS_MIN_DISTANCE 40    /*!< Default minimum distance between QRS peaks for post-processing (~200ms at 200 Hz) */
-#define QRS_MAX_PEAKS 50      /*!< Maximum number of QRS peaks in 10 seconds */
-#define QRS_STATIC_THRESHOLD 150 /*!< Static threshold for QRS detection (in ADC units) */
-#define QRS_PEAK_WINDOW 2      /*!< Window size for checking local maxima (~10ms at 200 Hz) */
-#define QRS_PEAK_REFINE_WINDOW 10 /*!< Window size for refining peak position (~50ms at 200 Hz) */
-#define QRS_MIN_AMPLITUDE 300  /*!< Minimum amplitude for QRS peaks (in ADC units) */
+#define QRS_MIN_DISTANCE 80
+#define QRS_MAX_PEAKS 50
+#define QRS_STATIC_THRESHOLD 600
+#define QRS_MIN_AMPLITUDE 1000
+#define QRS_PEAK_WINDOW 2
+#define QRS_PEAK_REFINE_WINDOW 10
 
 /* Public enumerate/structure ----------------------------------------- */
 /**
  * @brief Structure to store data for the QRS Detector.
  */
 typedef struct {
-    uint16_t peak_count;       /*!< Number of detected peaks */
+    uint16_t peak_count;       /* Number of detected peaks */
 } QRSDetector;
 
 /* Public function prototypes ----------------------------------------- */
