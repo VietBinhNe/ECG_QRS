@@ -15,6 +15,7 @@
 
 /* Includes ----------------------------------------------------------- */
 #include "filter.h"
+#include "mylib.h"
 
 /* Private defines ---------------------------------------------------- */
 /* None */
@@ -59,7 +60,7 @@ int32_t BandpassFilter_Apply(BandpassFilter* filter, int32_t new_sample)
     for (uint8_t i = 0; i < BANDPASS_LOWPASS_WINDOW_SIZE; i++) {
         lowpass += filter->lowpass_buffer[i];
     }
-    lowpass = (lowpass * 205) >> 10;
+    lowpass = (lowpass * 384) >> 10;
 
     // High-pass filter (cutoff ~0.5 Hz at 200 Hz)
     for (uint16_t i = BANDPASS_HIGHPASS_WINDOW_SIZE - 1; i > 0; i--) {
@@ -80,6 +81,13 @@ int32_t BandpassFilter_Apply(BandpassFilter* filter, int32_t new_sample)
     // Overflow control
     if (highpass > 32767) highpass = 32767;
     if (highpass < -32768) highpass = -32768;
+
+    // Debug: Print filtered value every 100 samples
+    if (filter->highpass_index % 100 == 0) {
+        char debug_msg[50];
+        sprintf(debug_msg, "DEBUG:FILTER:%ld\n", highpass);
+        HAL_UART_Transmit(&huart2, (uint8_t*)debug_msg, strlen(debug_msg), 200);
+    }
 
     return highpass;
 }

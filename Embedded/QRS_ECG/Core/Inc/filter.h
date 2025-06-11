@@ -21,8 +21,8 @@
 #include <stdint.h>
 
 /* Public defines ----------------------------------------------------- */
-#define BANDPASS_LOWPASS_WINDOW_SIZE 5  /*!< Size of the low-pass filter window for bandpass filter (cutoff ~40 Hz) */
-#define BANDPASS_HIGHPASS_WINDOW_SIZE 128 /*!< Size of the high-pass filter window for bandpass filter (cutoff ~0.5 Hz) */
+#define BANDPASS_LOWPASS_WINDOW_SIZE 5
+#define BANDPASS_HIGHPASS_WINDOW_SIZE 64
 
 /* Public enumerate/structure ----------------------------------------- */
 /**
