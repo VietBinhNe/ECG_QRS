@@ -1,0 +1,19 @@
+Bao cao danh gia bo loc Bandpass (0.5-40 Hz)
+======================================
+Du lieu: MIT-BIH Arrhythmia Database, Record 100
+Thoi gian: 10 giay
+Tan so lay mau: 200 Hz (tai lay mau tu 360 Hz)
+So mau: 2000
+
+Ket qua dinh luong:
+SNR cua tin hieu da loc: 6.27 dB
+QRS Detection:
+  True Positives (TP): 13
+  False Positives (FP): 0
+  False Negatives (FN): 1
+  Sensitivity: 0.93
+  Positive Predictive Value (PPV): 1.00
+
+Ket luan:
+Bo loc da loai bo nhieu hieu qua, voi SNR duong.
+Bo loc giu tot cac dac trung QRS, voi Sensitivity va PPV cao.
