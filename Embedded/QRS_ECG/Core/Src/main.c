@@ -2,8 +2,8 @@
  * @file       main.c
  * @copyright  Copyright (C) 2025 HCMUS. All rights reserved.
  * @license    This project is released under the VB's License.
- * @version    1.0.6
- * @date       2025-05-06
+ * @version    1.0.7
+ * @date       2025-06-23
  * @author     Binh Nguyen
  *
  * @brief      main
@@ -17,7 +17,6 @@
 #include "mylib.h"
 #include "filter.h"
 #include "cbuffer.h"
-#include "qrs_detector.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
@@ -28,13 +27,6 @@
 BandpassFilter bandpass_filter;
 cbuffer_t adc_buffer;
 uint8_t adc_buffer_data[512];
-QRSDetector qrs_detector;
-uint8_t qrs_flags[64];
-uint8_t qrs_flag_index;
-int32_t first_10s_filtered[2000];
-uint8_t first_10s_qrs_flags[2000];
-uint32_t first_10s_count = 0;
-uint8_t first_10s_ready = 0;
 /* USER CODE END PTD */
 
 /* Private define ------------------------------------------------------------*/
@@ -111,11 +103,6 @@ int main(void)
   /* USER CODE BEGIN 2 */
   BandpassFilter_Init(&bandpass_filter);
   cb_init(&adc_buffer, adc_buffer_data, sizeof(adc_buffer_data));
-  QRSDetector_Init(&qrs_detector);
-  memset(qrs_flags, 0, sizeof(qrs_flags));
-  qrs_flag_index = 0;
-  memset(first_10s_filtered, 0, sizeof(first_10s_filtered));
-  memset(first_10s_qrs_flags, 0, sizeof(first_10s_qrs_flags));
   HAL_TIM_Base_Start_IT(&htim2);
   HAL_ADC_Start_DMA(&hadc1, &ADC_value, 1);
   HAL_ADC_Start_IT(&hadc1);
@@ -129,72 +116,47 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-	  if(send_flag == 1)
-	  {
-		  send_flag = 0;
-		  uint8_t temp_buffer[256];
-		  uint32_t bytes_read = cb_read(&adc_buffer, temp_buffer, 256);
-			if(bytes_read == 256)
-			{
-				int idx = 0;
-				sendBuffer[idx++] = START_BYTE;
+    if (send_flag == 1)
+    {
+      send_flag = 0;
+      uint8_t temp_buffer[256];
+      uint32_t bytes_read = cb_read(&adc_buffer, temp_buffer, 256);
+      if (bytes_read == 256)
+      {
+        int idx = 0;
+        sendBuffer[idx++] = START_BYTE;
 
-				for (int i = 0; i < 64; i++)
-				{
-					uint16_t raw_value = (temp_buffer[i * 4] << 8) | temp_buffer[i * 4 + 1];
-					sendBuffer[idx++] = (raw_value >> 8) & 0xFF;
-					sendBuffer[idx++] = raw_value & 0xFF;
-				}
+        for (int i = 0; i < 64; i++)
+        {
+          uint16_t raw_value = (temp_buffer[i * 4] << 8) | temp_buffer[i * 4 + 1];
+          sendBuffer[idx++] = (raw_value >> 8) & 0xFF;
+          sendBuffer[idx++] = raw_value & 0xFF;
+        }
 
-				for (int i = 0; i < 64; i++)
-				{
-					int16_t bp_value = (temp_buffer[i * 4 + 2] << 8) | temp_buffer[i * 4 + 3];
-					sendBuffer[idx++] = (bp_value >> 8) & 0xFF;
-					sendBuffer[idx++] = bp_value & 0xFF;
-				}
+        for (int i = 0; i < 64; i++)
+        {
+          int16_t bp_value = (temp_buffer[i * 4 + 2] << 8) | temp_buffer[i * 4 + 3];
+          sendBuffer[idx++] = (bp_value >> 8) & 0xFF;
+          sendBuffer[idx++] = bp_value & 0xFF;
+        }
 
-				for (int i = 0; i < 64; i++)
-				{
-					if (first_10s_ready && qrs_flag_index < 2000)
-					{
-						if (qrs_flag_index % 256 == 0)
-						{
-							char debug_msg[50];
-							sprintf(debug_msg, "DEBUG:SENDING_QRS:%u:%u\n", qrs_flag_index, first_10s_qrs_flags[qrs_flag_index]);
-							HAL_UART_Transmit(&huart2, (uint8_t*)debug_msg, strlen(debug_msg), 200);
-						}
-						sendBuffer[idx++] = first_10s_qrs_flags[qrs_flag_index];
-						qrs_flag_index++;
-					}
-					else
-					{
-						sendBuffer[idx++] = 0;
-					}
-				}
-				if (qrs_flag_index >= 2000)
-				{
-					qrs_flag_index = 0;
-				}
+        uint8_t checksum = 0;
+        for (int i = 1; i < idx; i++)
+        {
+          checksum += sendBuffer[i];
+        }
+        sendBuffer[idx++] = checksum;
 
-				uint8_t checksum = 0;
-				for (int i = 1; i < idx; i++)
-				{
-					checksum += sendBuffer[i];
-				}
-				sendBuffer[idx++] = checksum;
+        sendBuffer[idx++] = END_BYTE;
 
-				sendBuffer[idx++] = END_BYTE;
-
-				HAL_UART_Transmit(&huart2, sendBuffer, idx, 200);
-
-				memset(qrs_flags, 0, sizeof(qrs_flags));
-			}
-			else
-			{
-				char error_msg[] = "Error reading from buffer\n";
-				HAL_UART_Transmit(&huart2, (uint8_t*)error_msg, strlen(error_msg), 200);
-			}
-	  }
+        HAL_UART_Transmit(&huart2, sendBuffer, idx, 200);
+      }
+      else
+      {
+        char error_msg[] = "Error reading from buffer\n";
+        HAL_UART_Transmit(&huart2, (uint8_t*)error_msg, strlen(error_msg), 200);
+      }
+    }
   }
   /* USER CODE END 3 */
 }
