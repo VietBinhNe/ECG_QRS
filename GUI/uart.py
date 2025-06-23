@@ -3,7 +3,7 @@ import serial
 import numpy as np
 import os
 import datetime
-from PyQt5.QtWidgets import QApplication, QMainWindow, QVBoxLayout, QHBoxLayout, QWidget, QPushButton, QLineEdit, QLabel, QTextEdit
+from PyQt5.QtWidgets import QApplication, QMainWindow, QVBoxLayout, QHBoxLayout, QWidget, QPushButton, QLineEdit, QLabel, QTextEdit, QScrollArea
 from PyQt5.QtCore import QTimer
 import pyqtgraph as pg
 from qrs_detector import QRSDetector
@@ -96,33 +96,35 @@ class ECGDisplay(QMainWindow):
         self.qrs_plot1 = self.plot_widget1.plot(pen=None, symbol='o', symbolPen='r', symbolBrush='r', symbolSize=10)
         self.plot_control_layout.addWidget(self.plot_widget1)
 
+        # Sử dụng QScrollArea cho plot_widget2 với thanh cuộn ngang
+        self.scroll_area2 = QScrollArea()
+        self.scroll_area2.setWidgetResizable(True)
         self.plot_widget2 = pg.PlotWidget(title="120 giây đầu (Chưa lọc)")
         self.plot_widget2.setBackground('w')
         self.plot_widget2.setLabel('left', 'Giá trị (ADC)', color='black')
         self.plot_widget2.setLabel('bottom', 'Thời gian (giây)', color='black')
         self.plot_widget2.setYRange(0, 4096)
-        self.plot_widget2.setXRange(0, 15)
         self.plot_widget2.getAxis('left').setTextPen('black')
         self.plot_widget2.getAxis('bottom').setTextPen('black')
-        self.plot_widget2.enableAutoRange('x', False)
-        self.plot_widget2.enableMouse(True)  # Bật kéo chuột
         self.plot_data2 = self.plot_widget2.plot(pen='r')
         self.qrs_plot2 = self.plot_widget2.plot(pen=None, symbol='o', symbolPen='r', symbolBrush='r', symbolSize=10)
-        self.plot_control_layout.addWidget(self.plot_widget2)
+        self.scroll_area2.setWidget(self.plot_widget2)
+        self.plot_control_layout.addWidget(self.scroll_area2)
 
+        # Sử dụng QScrollArea cho plot_widget3 với thanh cuộn ngang
+        self.scroll_area3 = QScrollArea()
+        self.scroll_area3.setWidgetResizable(True)
         self.plot_widget3 = pg.PlotWidget(title="120 giây đầu (Đã lọc)")
         self.plot_widget3.setBackground('w')
         self.plot_widget3.setLabel('left', 'Giá trị (ADC)', color='black')
         self.plot_widget3.setLabel('bottom', 'Thời gian (giây)', color='black')
-        self.plot_widget3.setYRange(-2048, 2048)
-        self.plot_widget3.setXRange(0, 15)
+        self.plot_widget3.setYRange(-2048, 2048)  # Giữ phạm vi cố định
         self.plot_widget3.getAxis('left').setTextPen('black')
         self.plot_widget3.getAxis('bottom').setTextPen('black')
-        self.plot_widget3.enableAutoRange('x', False)
-        self.plot_widget3.enableMouse(True)  # Bật kéo chuột
         self.plot_data3 = self.plot_widget3.plot(pen='g')
         self.qrs_plot3 = self.plot_widget3.plot(pen=None, symbol='o', symbolPen='r', symbolBrush='r', symbolSize=10)
-        self.plot_control_layout.addWidget(self.plot_widget3)
+        self.scroll_area3.setWidget(self.plot_widget3)
+        self.plot_control_layout.addWidget(self.scroll_area3)
 
         self.debug_layout = QHBoxLayout()
         self.debug_label = QLabel("Thông tin gỡ lỗi:")
@@ -292,24 +294,23 @@ class ECGDisplay(QMainWindow):
             self.qrs_plot1.setData([], [])
 
         if self.first_120s_collected:
-            # Khung raw (chưa lọc) - Hiển thị 15 giây
-            visible_samples = min(3000, len(self.first_120s_raw))  # 15 giây * 200 Hz
-            time_axis_120s_raw = np.linspace(0, 15, visible_samples)  # Chỉ 15 giây
-            self.plot_widget2.setXRange(0, 15)
-            self.plot_data2.setData(time_axis_120s_raw, self.first_120s_raw[:visible_samples])
+            # Khung raw (chưa lọc) - Hiển thị toàn bộ 120 giây
+            time_axis_120s_raw = np.linspace(0, 120, len(self.first_120s_raw))
+            self.plot_widget2.setXRange(0, 15)  # Mặc định hiển thị 15 giây đầu
+            self.plot_data2.setData(time_axis_120s_raw, self.first_120s_raw)
             self.qrs_plot2.setData([], [])
 
-            # Khung đã lọc - Hiển thị 15 giây
-            visible_samples_filtered = min(3000, len(self.first_120s_filtered))
-            time_axis_120s_filtered = np.linspace(0, 15, visible_samples_filtered)  # Chỉ 15 giây
-            self.plot_widget3.setXRange(0, 15)
-            self.plot_data3.setData(time_axis_120s_filtered, self.first_120s_filtered[:visible_samples_filtered])
+            # Khung đã lọc - Hiển thị toàn bộ 120 giây
+            time_axis_120s_filtered = np.linspace(0, 120, len(self.first_120s_filtered))
+            self.plot_widget3.setXRange(0, 15)  # Mặc định hiển thị 15 giây đầu
+            self.plot_data3.setData(time_axis_120s_filtered, self.first_120s_filtered)
             if self.qrs_display_enabled:
                 qrs_indices_120s = np.where(np.array(self.first_120s_qrs) == 1)[0]
-                qrs_timestamps_120s = time_axis_120s_filtered[np.clip(qrs_indices_120s, 0, visible_samples_filtered-1)]
-                qrs_values_120s = np.array(self.first_120s_filtered)[np.clip(qrs_indices_120s, 0, visible_samples_filtered-1)]
+                qrs_timestamps_120s = time_axis_120s_filtered[qrs_indices_120s]
+                qrs_values_120s = np.array(self.first_120s_filtered)[qrs_indices_120s]
                 self.qrs_plot3.setData(qrs_timestamps_120s, qrs_values_120s)
-                self.plot_widget3.autoRange()  # Scale lại trục Y
+                # Loại bỏ autoRange để giữ tỷ lệ cố định
+                # self.plot_widget3.autoRange()  # Comment hoặc xóa dòng này
             else:
                 self.qrs_plot3.setData([], [])
 
@@ -323,7 +324,9 @@ class ECGDisplay(QMainWindow):
         qrs_count = sum(self.first_120s_qrs)
         duration_seconds = self.first_120s_samples / self.sampling_rate
         heart_rate = (qrs_count / duration_seconds) * 60
-        qrs_ratio = qrs_count / self.first_120s_samples
+        # Tỷ lệ QRS detect đúng: Giả định dựa trên nhịp tim trung bình (60-100 bpm)
+        expected_qrs_count = (60 / 60) * duration_seconds  # Giả định nhịp tim 60 bpm
+        qrs_accuracy_ratio = qrs_count / max(1, expected_qrs_count) if qrs_count > 0 else 0
         rr_intervals = []
         last_peak = -1
         for i in range(len(self.first_120s_qrs)):
@@ -348,8 +351,12 @@ class ECGDisplay(QMainWindow):
             f.write(f"Kết quả QRS Detection:\n")
             f.write(f"  Số đỉnh QRS: {qrs_count}\n")
             f.write(f"  Nhịp tim: {int(heart_rate)} bpm\n")
-            f.write(f"  Tỷ lệ QRS/mẫu: {qrs_ratio:.6f}\n")
+            f.write(f"  Tỷ lệ QRS detect đúng: {qrs_accuracy_ratio:.6f}\n")
             f.write(f"  Trạng thái nhịp tim: {hr_state}\n")
+            f.write("-------------------------------------\n")
+            f.write("Dữ liệu 120 giây sau lọc:\n")
+            f.write("  Giá trị: " + ", ".join(map(str, self.first_120s_filtered)) + "\n")
+            f.write("  Đỉnh QRS (thời gian giây): " + ", ".join(map(str, np.where(np.array(self.first_120s_qrs) == 1)[0] / self.sampling_rate)) + "\n")
             f.write("=====================================\n")
 
         self.debug_text.append(f"DEBUG: Đã lưu báo cáo vào {filename}")
