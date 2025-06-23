@@ -55,7 +55,7 @@ void Error_Handler(void);
 /* USER CODE END EFP */
 
 /* Private defines -----------------------------------------------------------*/
-#define FRAME_SIZE 323 /* Start byte (1) + 64 raw (2 bytes each) + 64 bandpass (2 bytes each) + 64 QRS flags (1 byte each) + Checksum (1 byte) + End byte (1) */
+#define FRAME_SIZE 259 /* Start byte (1) + 64 raw (2 bytes each) + 64 bandpass (2 bytes each) + Checksum (1 byte) + End byte (1) */
 
 /* USER CODE BEGIN Private defines */
 
