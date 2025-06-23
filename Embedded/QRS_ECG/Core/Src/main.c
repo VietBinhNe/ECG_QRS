@@ -2,7 +2,7 @@
  * @file       main.c
  * @copyright  Copyright (C) 2025 HCMUS. All rights reserved.
  * @license    This project is released under the VB's License.
- * @version    1.0.7
+ * @version    1.0.8
  * @date       2025-06-23
  * @author     Binh Nguyen
  *
@@ -26,7 +26,7 @@
 /* USER CODE BEGIN PTD */
 BandpassFilter bandpass_filter;
 cbuffer_t adc_buffer;
-uint8_t adc_buffer_data[512];
+uint8_t adc_buffer_data[4096];
 /* USER CODE END PTD */
 
 /* Private define ------------------------------------------------------------*/
