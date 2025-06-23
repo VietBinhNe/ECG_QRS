@@ -21,25 +21,17 @@
 #include "mylib.h"
 #include "filter.h"
 #include "cbuffer.h"
-#include "qrs_detector.h"
 
 /* Private variables ---------------------------------------------------------*/
 /* USER CODE BEGIN PV */
 extern BandpassFilter bandpass_filter;
 extern cbuffer_t adc_buffer;
 extern uint8_t adc_buffer_data[512];
-extern QRSDetector qrs_detector;
-extern int32_t first_10s_filtered[2000];
-extern uint8_t first_10s_qrs_flags[2000];
-extern uint32_t first_10s_count;
-extern uint8_t first_10s_ready;
 /* USER CODE END PV */
 
 /* External variables --------------------------------------------------------*/
 extern DMA_HandleTypeDef hdma_adc1;
 extern TIM_HandleTypeDef htim2;
-extern uint8_t qrs_flags[64];
-extern uint8_t qrs_flag_index;
 
 /* USER CODE BEGIN EV */
 
@@ -111,22 +103,6 @@ void TIM2_IRQHandler(void)
 {
   uint16_t raw_value = (uint16_t)ADC_value;
   int32_t bandpass = BandpassFilter_Apply(&bandpass_filter, raw_value);
-
-  if (first_10s_count < 2000) {
-    first_10s_filtered[first_10s_count] = bandpass;
-    first_10s_count++;
-    if (first_10s_count == 2000) {
-      char debug_msg[50];
-      sprintf(debug_msg, "DEBUG:10S_COLLECTED\n");
-      HAL_UART_Transmit(&huart2, (uint8_t*)debug_msg, strlen(debug_msg), 200);
-
-      QRSDetector_Detect(&qrs_detector, first_10s_filtered, first_10s_qrs_flags);
-      first_10s_ready = 1;
-
-      sprintf(debug_msg, "DEBUG:QRS_DETECTED\n");
-      HAL_UART_Transmit(&huart2, (uint8_t*)debug_msg, strlen(debug_msg), 200);
-    }
-  }
 
   uint8_t raw_high_byte = (raw_value >> 8) & 0xFF;
   uint8_t raw_low_byte = raw_value & 0xFF;
