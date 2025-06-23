@@ -1,9 +1,12 @@
 import sys
 import serial
 import numpy as np
-from PyQt5.QtWidgets import QApplication, QMainWindow, QVBoxLayout, QWidget, QPushButton, QHBoxLayout, QLabel, QTextEdit
+import os
+import datetime
+from PyQt5.QtWidgets import QApplication, QMainWindow, QVBoxLayout, QHBoxLayout, QWidget, QPushButton, QLineEdit, QLabel, QTextEdit
 from PyQt5.QtCore import QTimer
 import pyqtgraph as pg
+from qrs_detector import QRSDetector
 
 class ECGDisplay(QMainWindow):
     def __init__(self):
@@ -12,28 +15,74 @@ class ECGDisplay(QMainWindow):
         self.setGeometry(100, 100, 1200, 800)
         self.setStyleSheet("background-color: white;")
 
-        self.serial_port = serial.Serial('COM12', 38400, timeout=1)  # Thay 'COM12' bằng cổng của bạn
+        self.serial_port = None
         self.sampling_rate = 200
-        self.display_samples = 2000
-        self.first_10s_samples = 2000
+        self.display_samples = 2000  # 10 giây * 200 Hz cho khung liên tục
+        self.first_120s_samples = 24000  # 120 giây * 200 Hz
 
         self.raw_data = []
         self.filtered_data = []
         self.qrs_flags = []
-        self.first_10s_raw = []
-        self.first_10s_filtered = []
-        self.first_10s_qrs = []
-        self.is_running = True
-        self.first_10s_collected = False
+        self.first_120s_raw = []
+        self.first_120s_filtered = []
+        self.first_120s_qrs = []
+        self.is_running = False
+        self.first_120s_collected = False
         self.qrs_display_enabled = False
         self.frame_count = 0
-        self.wait_for_qrs = False
-        self.qrs_buffer = []
-        self.expected_qrs_indices = []
+        self.buffer = bytearray()
 
         self.central_widget = QWidget()
         self.setCentralWidget(self.central_widget)
-        self.main_layout = QVBoxLayout(self.central_widget)
+        self.main_layout = QHBoxLayout(self.central_widget)
+
+        # Panel thông tin bệnh nhân
+        self.patient_panel = QWidget()
+        self.patient_panel.setStyleSheet("background-color: lightgray; padding: 10px;")
+        self.patient_layout = QVBoxLayout(self.patient_panel)
+        self.patient_layout.setSpacing(10)
+
+        self.name_label = QLabel("Tên bệnh nhân:")
+        self.name_label.setStyleSheet("color: black; font-size: 14px;")
+        self.patient_layout.addWidget(self.name_label)
+
+        self.name_input = QLineEdit()
+        self.name_input.setPlaceholderText("Nhập tên bệnh nhân")
+        self.name_input.setStyleSheet("background-color: white; color: black; font-size: 12px;")
+        self.patient_layout.addWidget(self.name_input)
+
+        self.id_label = QLabel("ID bệnh nhân:")
+        self.id_label.setStyleSheet("color: black; font-size: 14px;")
+        self.patient_layout.addWidget(self.id_label)
+
+        self.id_input = QLineEdit()
+        self.id_input.setPlaceholderText("Nhập ID bệnh nhân")
+        self.id_input.setStyleSheet("background-color: white; color: black; font-size: 12px;")
+        self.patient_layout.addWidget(self.id_input)
+
+        self.start_button = QPushButton("Start")
+        self.start_button.setStyleSheet("background-color: lightblue; color: black; font-size: 14px;")
+        self.start_button.clicked.connect(self.start_acquisition)
+        self.patient_layout.addWidget(self.start_button)
+
+        self.pause_button = QPushButton("Dừng")
+        self.pause_button.setStyleSheet("background-color: #B0E0E6; color: black; font-size: 14px;")
+        self.pause_button.clicked.connect(self.toggle_pause)
+        self.pause_button.setEnabled(False)
+        self.patient_layout.addWidget(self.pause_button)
+
+        self.detect_button = QPushButton("Detect")
+        self.detect_button.setStyleSheet("background-color: #B0E0E6; color: black; font-size: 14px;")
+        self.detect_button.setEnabled(False)
+        self.detect_button.clicked.connect(self.detect_qrs)
+        self.patient_layout.addWidget(self.detect_button)
+
+        self.patient_layout.addStretch()
+        self.main_layout.addWidget(self.patient_panel, 1)  # Panel bệnh nhân chiếm 1/9
+
+        # Panel chính cho biểu đồ
+        self.plot_control_panel = QWidget()
+        self.plot_control_layout = QVBoxLayout(self.plot_control_panel)
 
         self.plot_widget1 = pg.PlotWidget(title="Sóng ECG liên tục (Đã lọc)")
         self.plot_widget1.setBackground('w')
@@ -45,44 +94,35 @@ class ECGDisplay(QMainWindow):
         self.plot_widget1.getAxis('bottom').setTextPen('black')
         self.plot_data1 = self.plot_widget1.plot(pen='b')
         self.qrs_plot1 = self.plot_widget1.plot(pen=None, symbol='o', symbolPen='r', symbolBrush='r', symbolSize=10)
-        self.main_layout.addWidget(self.plot_widget1)
+        self.plot_control_layout.addWidget(self.plot_widget1)
 
-        self.button_layout = QHBoxLayout()
-        self.pause_button = QPushButton("Dừng")
-        self.pause_button.setStyleSheet("background-color: lightgray; color: black;")
-        self.pause_button.clicked.connect(self.toggle_pause)
-        self.button_layout.addWidget(self.pause_button)
-
-        self.detect_button = QPushButton("Detect")
-        self.detect_button.setStyleSheet("background-color: lightgray; color: black;")
-        self.detect_button.setEnabled(False)
-        self.detect_button.clicked.connect(self.detect_qrs)
-        self.button_layout.addWidget(self.detect_button)
-        self.main_layout.addLayout(self.button_layout)
-
-        self.plot_widget2 = pg.PlotWidget(title="10 giây đầu (Chưa lọc)")
+        self.plot_widget2 = pg.PlotWidget(title="120 giây đầu (Chưa lọc)")
         self.plot_widget2.setBackground('w')
         self.plot_widget2.setLabel('left', 'Giá trị (ADC)', color='black')
         self.plot_widget2.setLabel('bottom', 'Thời gian (giây)', color='black')
         self.plot_widget2.setYRange(0, 4096)
-        self.plot_widget2.setXRange(0, 10)
+        self.plot_widget2.setXRange(0, 15)
         self.plot_widget2.getAxis('left').setTextPen('black')
         self.plot_widget2.getAxis('bottom').setTextPen('black')
+        self.plot_widget2.enableAutoRange('x', False)
+        self.plot_widget2.enableMouse(True)  # Bật kéo chuột
         self.plot_data2 = self.plot_widget2.plot(pen='r')
         self.qrs_plot2 = self.plot_widget2.plot(pen=None, symbol='o', symbolPen='r', symbolBrush='r', symbolSize=10)
-        self.main_layout.addWidget(self.plot_widget2)
+        self.plot_control_layout.addWidget(self.plot_widget2)
 
-        self.plot_widget3 = pg.PlotWidget(title="10 giây đầu (Đã lọc)")
+        self.plot_widget3 = pg.PlotWidget(title="120 giây đầu (Đã lọc)")
         self.plot_widget3.setBackground('w')
         self.plot_widget3.setLabel('left', 'Giá trị (ADC)', color='black')
         self.plot_widget3.setLabel('bottom', 'Thời gian (giây)', color='black')
         self.plot_widget3.setYRange(-2048, 2048)
-        self.plot_widget3.setXRange(0, 10)
+        self.plot_widget3.setXRange(0, 15)
         self.plot_widget3.getAxis('left').setTextPen('black')
         self.plot_widget3.getAxis('bottom').setTextPen('black')
+        self.plot_widget3.enableAutoRange('x', False)
+        self.plot_widget3.enableMouse(True)  # Bật kéo chuột
         self.plot_data3 = self.plot_widget3.plot(pen='g')
         self.qrs_plot3 = self.plot_widget3.plot(pen=None, symbol='o', symbolPen='r', symbolBrush='r', symbolSize=10)
-        self.main_layout.addWidget(self.plot_widget3)
+        self.plot_control_layout.addWidget(self.plot_widget3)
 
         self.debug_layout = QHBoxLayout()
         self.debug_label = QLabel("Thông tin gỡ lỗi:")
@@ -94,7 +134,7 @@ class ECGDisplay(QMainWindow):
         self.debug_text.setMinimumHeight(100)
         self.debug_text.setStyleSheet("color: black; font-size: 12px; background-color: lightgray;")
         self.debug_layout.addWidget(self.debug_text)
-        self.main_layout.addLayout(self.debug_layout)
+        self.plot_control_layout.addLayout(self.debug_layout)
 
         self.hr_layout = QHBoxLayout()
         self.hr_label = QLabel("Nhịp tim: N/A bpm")
@@ -104,13 +144,28 @@ class ECGDisplay(QMainWindow):
         self.hr_state_label = QLabel("Trạng thái nhịp tim: N/A")
         self.hr_state_label.setStyleSheet("color: black; font-size: 14px;")
         self.hr_layout.addWidget(self.hr_state_label)
-        self.main_layout.addLayout(self.hr_layout)
+        self.plot_control_layout.addLayout(self.hr_layout)
+
+        self.main_layout.addWidget(self.plot_control_panel, 8)  # Panel biểu đồ chiếm 8/9
 
         self.timer = QTimer()
         self.timer.timeout.connect(self.update_data)
-        self.timer.start(50)
+        self.qrs_detector = QRSDetector()
 
-        self.buffer = bytearray()
+    def start_acquisition(self):
+        if not self.name_input.text() or not self.id_input.text():
+            self.debug_text.append("ERROR: Vui lòng nhập tên và ID bệnh nhân!")
+            return
+
+        try:
+            self.serial_port = serial.Serial('COM12', 38400, timeout=1)
+            self.is_running = True
+            self.start_button.setEnabled(False)
+            self.pause_button.setEnabled(True)
+            self.timer.start(50)
+            self.debug_text.append("DEBUG: Bắt đầu thu thập dữ liệu...")
+        except Exception as e:
+            self.debug_text.append(f"ERROR: Không thể mở cổng serial: {str(e)}")
 
     def toggle_pause(self):
         if self.is_running:
@@ -121,13 +176,18 @@ class ECGDisplay(QMainWindow):
             self.pause_button.setText("Dừng")
 
     def detect_qrs(self):
-        self.qrs_display_enabled = True
-        self.update_plots()
-        qrs_indices = np.where(np.array(self.first_10s_qrs) == 1)[0]
-        self.debug_text.append(f"DEBUG: QRS indices displayed: {qrs_indices.tolist()}")
+        if len(self.first_120s_filtered) == self.first_120s_samples:
+            self.qrs_detector.init()
+            self.first_120s_qrs = self.qrs_detector.detect(np.array(self.first_120s_filtered))
+            self.qrs_display_enabled = True
+            self.update_plots()
+            qrs_indices = np.where(np.array(self.first_120s_qrs) == 1)[0]
+            self.debug_text.append(f"DEBUG: QRS indices displayed: {qrs_indices.tolist()}")
+            self.update_heart_rate()
+            self.save_patient_data()
 
     def update_data(self):
-        if not self.is_running:
+        if not self.is_running or not self.serial_port:
             return
 
         while self.serial_port.in_waiting > 0:
@@ -143,44 +203,32 @@ class ECGDisplay(QMainWindow):
                     self.buffer = self.buffer[newline_idx + 1:]
                     self.debug_text.append(debug_msg)
                     self.debug_text.verticalScrollBar().setValue(self.debug_text.verticalScrollBar().maximum())
-
-                    if debug_msg.startswith("DEBUG:TOTAL"):
-                        self.wait_for_qrs = True
-                        self.qrs_buffer = []
-                        self.debug_text.append("DEBUG: Starting to collect QRS flags after processing")
-                    elif debug_msg.startswith("DEBUG:QRS_INDICES:"):
-                        indices_str = debug_msg[len("DEBUG:QRS_INDICES:"):-1]
-                        if indices_str:
-                            indices = [int(x) for x in indices_str.split(',') if x]
-                            self.expected_qrs_indices.extend(indices)
-                            self.debug_text.append(f"DEBUG:Received QRS indices: {self.expected_qrs_indices}")
                     continue
 
                 if self.buffer[0] != 0xAA:
                     self.buffer.pop(0)
                     continue
 
-                if len(self.buffer) < 323:
+                if len(self.buffer) < 259:
                     break
 
-                if self.buffer[322] != 0xBB:
+                if self.buffer[258] != 0xBB:
                     self.buffer.pop(0)
                     continue
 
-                frame = self.buffer[:323]
-                calculated_checksum = sum(frame[1:321]) % 256
-                received_checksum = frame[321]
+                frame = self.buffer[:259]
+                calculated_checksum = sum(frame[1:257]) % 256
+                received_checksum = frame[257]
 
                 if calculated_checksum != received_checksum:
                     self.debug_text.append(f"DEBUG: Checksum error! Calculated: {calculated_checksum}, Received: {received_checksum}")
-                    self.buffer = self.buffer[323:]
+                    self.buffer = self.buffer[259:]
                     continue
 
-                self.buffer = self.buffer[323:]
+                self.buffer = self.buffer[259:]
 
                 raw_values = []
                 bandpass_values = []
-                qrs_flags = []
                 for i in range(64):
                     idx = 1 + i * 2
                     value = (frame[idx] << 8) | frame[idx + 1]
@@ -191,67 +239,37 @@ class ECGDisplay(QMainWindow):
                     if value & 0x8000:
                         value -= 65536
                     bandpass_values.append(value)
-                for i in range(64):
-                    idx = 257 + i
-                    qrs_flags.append(frame[idx])
 
                 self.raw_data.extend(raw_values)
                 self.filtered_data.extend(bandpass_values)
-                self.qrs_flags.extend(qrs_flags)
 
                 if len(self.raw_data) > self.display_samples:
                     self.raw_data = self.raw_data[-self.display_samples:]
                     self.filtered_data = self.filtered_data[-self.display_samples:]
-                    self.qrs_flags = self.qrs_flags[-self.display_samples:]
 
-                if not self.first_10s_collected:
-                    self.first_10s_raw.extend(raw_values)
-                    self.first_10s_filtered.extend(bandpass_values)
-                    self.first_10s_qrs.extend([0] * len(qrs_flags))
-                    if len(self.first_10s_raw) % 200 == 0:
-                        self.debug_text.append(f"DEBUG: Sample QRS flags at sample {len(self.first_10s_raw)}: {qrs_flags[:10]}")
-                    if len(self.first_10s_raw) >= self.first_10s_samples:
-                        self.first_10s_collected = True
-                        self.first_10s_raw = self.first_10s_raw[:self.first_10s_samples]
-                        self.first_10s_filtered = self.first_10s_filtered[:self.first_10s_samples]
-                        self.first_10s_qrs = [0] * self.first_10s_samples
-                        self.debug_text.append(f"DEBUG: First 10 seconds collected. Length of first_10s_qrs: {len(self.first_10s_qrs)}")
-                        self.wait_for_qrs = True
-                        self.qrs_buffer = []
-
-                if self.wait_for_qrs:
-                    self.qrs_buffer.extend(qrs_flags)
-                    if len(self.qrs_buffer) >= self.first_10s_samples:
-                        self.first_10s_qrs = self.qrs_buffer[:self.first_10s_samples]
-                        self.wait_for_qrs = False
+                if not self.first_120s_collected:
+                    self.first_120s_raw.extend(raw_values)
+                    self.first_120s_filtered.extend(bandpass_values)
+                    if len(self.first_120s_raw) >= self.first_120s_samples:
+                        self.first_120s_collected = True
+                        self.first_120s_raw = self.first_120s_raw[:self.first_120s_samples]
+                        self.first_120s_filtered = self.first_120s_filtered[:self.first_120s_samples]
+                        self.first_120s_qrs = [0] * self.first_120s_samples
                         self.detect_button.setEnabled(True)
-                        self.qrs_display_enabled = True
-                        self.debug_text.append(f"DEBUG: Collected QRS flags. Length of first_10s_qrs: {len(self.first_10s_qrs)}")
-                        qrs_indices = np.where(np.array(self.first_10s_qrs) == 1)[0]
-                        self.debug_text.append(f"DEBUG: QRS indices after collecting flags: {qrs_indices.tolist()}")
-                        if self.expected_qrs_indices:
-                            if sorted(list(qrs_indices)) == sorted(self.expected_qrs_indices):
-                                self.debug_text.append("DEBUG: QRS indices match STM32 output")
-                            else:
-                                self.debug_text.append(f"DEBUG: QRS indices mismatch! Expected: {self.expected_qrs_indices}, Received: {qrs_indices.tolist()}")
-                        for idx in qrs_indices:
-                            if idx < len(self.first_10s_filtered):
-                                self.debug_text.append(f"DEBUG:QRS_SIGNAL_VALUE:{idx}:{self.first_10s_filtered[idx]}")
-                        self.update_heart_rate()
-                        self.update_plots()
+                        self.debug_text.append(f"DEBUG: First 120 seconds collected. Length of first_120s_filtered: {len(self.first_120s_filtered)}")
 
         self.update_plots()
 
     def update_heart_rate(self):
-        qrs_count = sum(self.first_10s_qrs)
-        duration_seconds = self.first_10s_samples / self.sampling_rate
+        qrs_count = sum(self.first_120s_qrs)
+        duration_seconds = self.first_120s_samples / self.sampling_rate
         heart_rate = (qrs_count / duration_seconds) * 60
         self.hr_label.setText(f"Nhịp tim: {int(heart_rate)} bpm")
 
         rr_intervals = []
         last_peak = -1
-        for i in range(len(self.first_10s_qrs)):
-            if self.first_10s_qrs[i] == 1:
+        for i in range(len(self.first_120s_qrs)):
+            if self.first_120s_qrs[i] == 1:
                 if last_peak != -1:
                     rr_intervals.append(i - last_peak)
                 last_peak = i
@@ -267,27 +285,78 @@ class ECGDisplay(QMainWindow):
 
     def update_plots(self):
         if len(self.filtered_data) > 0:
-            time_axis = np.linspace(0, 10, len(self.filtered_data))
-            self.plot_data1.setData(time_axis, self.filtered_data)
+            time_axis = np.linspace(max(0, len(self.filtered_data) - self.display_samples) / 200, 
+                                min(10, len(self.filtered_data) / 200), 
+                                min(len(self.filtered_data), self.display_samples))
+            self.plot_data1.setData(time_axis, self.filtered_data[-self.display_samples:])
             self.qrs_plot1.setData([], [])
 
-        if self.first_10s_collected:
-            time_axis_10s = np.linspace(0, 10, len(self.first_10s_raw))
-            self.plot_data2.setData(time_axis_10s, self.first_10s_raw)
+        if self.first_120s_collected:
+            # Khung raw (chưa lọc) - Hiển thị 15 giây
+            visible_samples = min(3000, len(self.first_120s_raw))  # 15 giây * 200 Hz
+            time_axis_120s_raw = np.linspace(0, 15, visible_samples)  # Chỉ 15 giây
+            self.plot_widget2.setXRange(0, 15)
+            self.plot_data2.setData(time_axis_120s_raw, self.first_120s_raw[:visible_samples])
             self.qrs_plot2.setData([], [])
 
-            time_axis_10s = np.linspace(0, 10, len(self.first_10s_filtered))
-            self.plot_data3.setData(time_axis_10s, self.first_10s_filtered)
+            # Khung đã lọc - Hiển thị 15 giây
+            visible_samples_filtered = min(3000, len(self.first_120s_filtered))
+            time_axis_120s_filtered = np.linspace(0, 15, visible_samples_filtered)  # Chỉ 15 giây
+            self.plot_widget3.setXRange(0, 15)
+            self.plot_data3.setData(time_axis_120s_filtered, self.first_120s_filtered[:visible_samples_filtered])
             if self.qrs_display_enabled:
-                qrs_indices_10s = np.where(np.array(self.first_10s_qrs) == 1)[0]
-                qrs_timestamps_10s = time_axis_10s[qrs_indices_10s]
-                qrs_values_10s = np.array(self.first_10s_filtered)[qrs_indices_10s]
-                self.qrs_plot3.setData(qrs_timestamps_10s, qrs_values_10s)
+                qrs_indices_120s = np.where(np.array(self.first_120s_qrs) == 1)[0]
+                qrs_timestamps_120s = time_axis_120s_filtered[np.clip(qrs_indices_120s, 0, visible_samples_filtered-1)]
+                qrs_values_120s = np.array(self.first_120s_filtered)[np.clip(qrs_indices_120s, 0, visible_samples_filtered-1)]
+                self.qrs_plot3.setData(qrs_timestamps_120s, qrs_values_120s)
+                self.plot_widget3.autoRange()  # Scale lại trục Y
             else:
                 self.qrs_plot3.setData([], [])
 
+    def save_patient_data(self):
+        patient_name = self.name_input.text()
+        patient_id = self.id_input.text()
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        os.makedirs("GUI/patients", exist_ok=True)
+        filename = f"GUI/patients/patient_{patient_id}_{timestamp}.txt"
+
+        qrs_count = sum(self.first_120s_qrs)
+        duration_seconds = self.first_120s_samples / self.sampling_rate
+        heart_rate = (qrs_count / duration_seconds) * 60
+        qrs_ratio = qrs_count / self.first_120s_samples
+        rr_intervals = []
+        last_peak = -1
+        for i in range(len(self.first_120s_qrs)):
+            if self.first_120s_qrs[i] == 1:
+                if last_peak != -1:
+                    rr_intervals.append(i - last_peak)
+                last_peak = i
+        hr_state = "Đều" if len(rr_intervals) > 1 and np.std(rr_intervals) / np.mean(rr_intervals) < 0.1 else "Không đều"
+
+        with open(filename, 'w', encoding='utf-8') as f:
+            f.write("=====================================\n")
+            f.write("         Báo Cáo ECG Bệnh Nhân       \n")
+            f.write("=====================================\n")
+            f.write(f"Tên bệnh nhân: {patient_name}\n")
+            f.write(f"ID bệnh nhân: {patient_id}\n")
+            f.write(f"Thời gian ghi: {timestamp}\n")
+            f.write("-------------------------------------\n")
+            f.write(f"Thời gian thu thập: {int(duration_seconds)} giây\n")
+            f.write(f"Tần số lấy mẫu: {self.sampling_rate} Hz\n")
+            f.write(f"Số mẫu: {self.first_120s_samples}\n")
+            f.write("-------------------------------------\n")
+            f.write(f"Kết quả QRS Detection:\n")
+            f.write(f"  Số đỉnh QRS: {qrs_count}\n")
+            f.write(f"  Nhịp tim: {int(heart_rate)} bpm\n")
+            f.write(f"  Tỷ lệ QRS/mẫu: {qrs_ratio:.6f}\n")
+            f.write(f"  Trạng thái nhịp tim: {hr_state}\n")
+            f.write("=====================================\n")
+
+        self.debug_text.append(f"DEBUG: Đã lưu báo cáo vào {filename}")
+
     def closeEvent(self, event):
-        self.serial_port.close()
+        if self.serial_port:
+            self.serial_port.close()
         event.accept()
 
 if __name__ == '__main__':
