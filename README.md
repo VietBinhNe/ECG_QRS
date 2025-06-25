@@ -1,7 +1,7 @@
 <!-- <div style="text-align: center; background-color: #8F98E3; font-family: 'Trebuchet MS', Arial, sans-serif; color: white; padding: 10px; font-size: 25px; font-weight: bold; border-radius: 0 0 0 0; box-shadow: 0px 6px 8px rgba(0, 0, 0, 0.2);">
   Detect QRS peak of ECG wave on STM32y 🫁
 </div> -->
-# Detect QRS peak of ECG wave on STM32 
+# Real-Time ECG Signal Processing and QRS Detection on STM32 
 
 <p align="center">
   <img src="./assets/ecg_banner.jpg" alt="Project Banner" width="400" height="auto">
